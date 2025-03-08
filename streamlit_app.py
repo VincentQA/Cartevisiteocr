@@ -5,25 +5,26 @@ from mistralai import Mistral
 
 def extract_text_from_ocr_response(ocr_response):
     """
-    Extrait le texte de l'objet OCRResponse.
-    L'OCR retourne potentiellement une liste d'objets OCRPageObject contenant un attribut 'markdown'.
-    On combine le markdown de chaque page en un seul texte.
+    Extrait le texte exploitable depuis la réponse OCR.
+    Si la réponse possède un attribut 'pages' (liste d'OCRPageObject), on itère dessus.
+    Pour chaque page, on supprime la ligne contenant l'image (commençant par "![") et on conserve le reste.
     """
     extracted_text = ""
-    # Si l'OCR retourne une liste de pages
-    if isinstance(ocr_response, list):
-        for page in ocr_response:
-            if hasattr(page, "markdown") and page.markdown:
-                # On sépare le markdown pour retirer l'image (première ligne)
-                parts = page.markdown.split("\n", 1)
-                if len(parts) == 2:
-                    extracted_text += parts[1].strip() + "\n"
-                else:
-                    extracted_text += page.markdown.strip() + "\n"
+    # Si l'objet a un attribut 'pages'
+    if hasattr(ocr_response, "pages"):
+        pages = ocr_response.pages
+    elif isinstance(ocr_response, list):
+        pages = ocr_response
     else:
-        # Sinon, on vérifie directement si l'objet a un attribut markdown
-        if hasattr(ocr_response, "markdown") and ocr_response.markdown:
-            extracted_text = ocr_response.markdown
+        pages = []
+
+    for page in pages:
+        if hasattr(page, "markdown") and page.markdown:
+            # Découper le markdown en lignes et filtrer celles qui commencent par "!["
+            lines = page.markdown.split("\n")
+            filtered_lines = [line.strip() for line in lines if not line.startswith("![")]
+            if filtered_lines:
+                extracted_text += "\n".join(filtered_lines) + "\n"
     return extracted_text.strip()
 
 def extract_business_card_data_via_ai(ocr_text, client, model="mistral-small-latest"):
@@ -81,13 +82,13 @@ if image_file is not None:
                     "image_url": image_data_uri
                 }
             )
-            st.subheader("Résultat de l'OCR (brut) :")
+            st.subheader("Résultat brut de l'OCR :")
             st.write(ocr_response)
             
-            # Extraction du texte à partir de l'OCRResponse
+            # Extraction du texte exploitable depuis la réponse OCR
             ocr_text = extract_text_from_ocr_response(ocr_response)
             if not ocr_text:
-                st.warning("Aucun texte extrait par l'OCR.")
+                st.warning("Aucun texte exploitable extrait par l'OCR.")
             else:
                 st.subheader("Texte OCR extrait :")
                 st.text(ocr_text)
