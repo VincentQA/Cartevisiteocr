@@ -3,6 +3,29 @@ import os
 import base64
 from mistralai import Mistral
 
+def extract_text_from_ocr_response(ocr_response):
+    """
+    Extrait le texte de l'objet OCRResponse.
+    L'OCR retourne potentiellement une liste d'objets OCRPageObject contenant un attribut 'markdown'.
+    On combine le markdown de chaque page en un seul texte.
+    """
+    extracted_text = ""
+    # Si l'OCR retourne une liste de pages
+    if isinstance(ocr_response, list):
+        for page in ocr_response:
+            if hasattr(page, "markdown") and page.markdown:
+                # On sépare le markdown pour retirer l'image (première ligne)
+                parts = page.markdown.split("\n", 1)
+                if len(parts) == 2:
+                    extracted_text += parts[1].strip() + "\n"
+                else:
+                    extracted_text += page.markdown.strip() + "\n"
+    else:
+        # Sinon, on vérifie directement si l'objet a un attribut markdown
+        if hasattr(ocr_response, "markdown") and ocr_response.markdown:
+            extracted_text = ocr_response.markdown
+    return extracted_text.strip()
+
 def extract_business_card_data_via_ai(ocr_text, client, model="mistral-small-latest"):
     """
     Envoie le texte OCR à l'agent pour extraire les informations de la carte de visite.
@@ -58,11 +81,11 @@ if image_file is not None:
                     "image_url": image_data_uri
                 }
             )
-            st.subheader("Résultat de l'OCR :")
+            st.subheader("Résultat de l'OCR (brut) :")
             st.write(ocr_response)
             
-            # Accès direct à l'attribut text de l'objet OCRResponse
-            ocr_text = ocr_response.text if hasattr(ocr_response, "text") else ""
+            # Extraction du texte à partir de l'OCRResponse
+            ocr_text = extract_text_from_ocr_response(ocr_response)
             if not ocr_text:
                 st.warning("Aucun texte extrait par l'OCR.")
             else:
