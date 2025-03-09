@@ -13,7 +13,7 @@ MISTRAL_API_KEY = os.getenv("MISTRAL_API_KEY")
 TAVILY_API_KEY = os.getenv("TAVILY_API_KEY")
 
 if not OPENAI_API_KEY or not MISTRAL_API_KEY or not TAVILY_API_KEY:
-    st.error("Veuillez définir les variables OPENAI_API_KEY, MISTRAL_API_KEY et TAVILY_API_KEY dans votre environnement.")
+    st.error("Veuillez définir OPENAI_API_KEY, MISTRAL_API_KEY et TAVILY_API_KEY dans vos variables d'environnement.")
     st.stop()
 
 # Initialisation des clients
@@ -21,9 +21,9 @@ client_openai = OpenAI(api_key=OPENAI_API_KEY)
 client_mistral = Mistral(api_key=MISTRAL_API_KEY)
 tavily_client = TavilyClient(api_key=TAVILY_API_KEY)
 
-###########################################
-# Création de l'assistant OpenAI avec outil #
-###########################################
+###############################################
+# Création de l'assistant avec outil Tavily  #
+###############################################
 
 assistant_prompt_instruction = """
 Vous êtes Chat IA, un assistant expert en analyse de cartes de visite.
@@ -56,9 +56,9 @@ assistant = client_openai.beta.assistants.create(
 )
 assistant_id = assistant.id
 
-#####################################################
-# Fonctions utilitaires pour l'assistant et Tavily  #
-#####################################################
+###############################################
+# Fonctions utilitaires pour l'assistant      #
+###############################################
 
 def tavily_search(query):
     # Effectue une recherche en ligne via Tavily
@@ -88,17 +88,20 @@ def submit_tool_outputs(thread_id, run_id, tools_to_call):
         tool_outputs=tool_output_array
     )
 
-def print_messages_from_thread(thread_id):
+def get_final_assistant_message(thread_id):
+    # Récupère le dernier message de l'assistant dans le thread
     messages = client_openai.beta.threads.messages.list(thread_id=thread_id)
-    for msg in messages:
-        role = msg.role
+    assistant_messages = [msg for msg in messages if msg.role == "assistant"]
+    if assistant_messages:
+        final_msg = assistant_messages[-1]
         text_val = ""
-        for content_item in msg.content:
+        for content_item in final_msg.content:
             if isinstance(content_item, dict):
                 text_val += content_item.get("text", "")
             else:
                 text_val += str(content_item)
-        st.write(f"{role}: {text_val}")
+        return text_val.strip()
+    return None
 
 def extract_text_from_ocr_response(ocr_response):
     """
@@ -119,9 +122,9 @@ def extract_text_from_ocr_response(ocr_response):
                 extracted_text += "\n".join(filtered_lines) + "\n"
     return extracted_text.strip()
 
-###########################################
-# Interface Streamlit                     #
-###########################################
+###############################################
+# Interface Streamlit                         #
+###############################################
 
 st.set_page_config(page_title="Le charte visite 🐱", layout="centered")
 st.title("Le charte visite 🐱")
@@ -179,8 +182,18 @@ if image_file is not None:
                 run = submit_tool_outputs(thread.id, run.id, run.required_action.submit_tool_outputs.tool_calls)
                 run = wait_for_run_completion(thread.id, run.id)
             
+            # Récupération et affichage du résultat final de l'assistant
+            assistant_output = get_final_assistant_message(thread.id)
             st.subheader("Résultat final de l'assistant :")
-            print_messages_from_thread(thread.id)
+            if assistant_output:
+                try:
+                    parsed_json = json.loads(assistant_output)
+                    st.json(parsed_json)
+                except Exception as e:
+                    st.text("Erreur lors du parsing JSON, voici le résultat brut :")
+                    st.text(assistant_output)
+            else:
+                st.warning("Aucun message de l'assistant n'a été trouvé.")
             
     except Exception as e:
         st.error(f"Erreur lors du traitement OCR ou de l'analyse par l'assistant : {e}")
