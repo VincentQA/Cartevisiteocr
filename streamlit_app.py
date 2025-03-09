@@ -2,7 +2,6 @@ import streamlit as st
 import os
 import base64
 import json
-import requests
 from mistralai import Mistral
 from tavily import TavilyClient
 
@@ -14,26 +13,12 @@ if not MISTRAL_API_KEY or not TAVILY_API_KEY:
     st.error("Veuillez définir MISTRAL_API_KEY et TAVILY_API_KEY dans vos variables d'environnement.")
     st.stop()
 
-# Initialisation des clients OCR (Mistral) et Tavily
+# Initialisation des clients Mistral et Tavily
 client_mistral = Mistral(api_key=MISTRAL_API_KEY)
 tavily_client = TavilyClient(api_key=TAVILY_API_KEY)
 
 ##############################################
-# Fonction d'appel direct à l'API Agents completions
-##############################################
-
-def call_agent_completions(payload):
-    url = "https://api.mistral.ai/v1/agents/completions"
-    headers = {
-        "Authorization": f"Bearer {MISTRAL_API_KEY}",
-        "Content-Type": "application/json"
-    }
-    response = requests.post(url, headers=headers, json=payload)
-    response.raise_for_status()
-    return response.json()
-
-##############################################
-# Configuration de l'agent pour la recherche en ligne
+# Configuration de l'assistant avec function calling
 ##############################################
 
 assistant_prompt_instruction = """
@@ -88,19 +73,19 @@ def extract_text_from_ocr_response(ocr_response):
     return extracted_text.strip()
 
 ##############################################
-# Interface Streamlit : Étape 1 - Entrée utilisateur
+# Interface Streamlit (Nouvelle version)
 ##############################################
 
 st.set_page_config(page_title="Le charte visite 🐱", layout="centered")
 st.title("Le charte visite 🐱")
 
-# Disposition en colonnes pour afficher côte à côte la capture d'image et les autres inputs
+# Affichage côte à côte de la capture d'image et des autres inputs
 col1, col2 = st.columns(2)
 with col1:
-    # 1. Capture de l'image de la carte de visite
+    # Capture de l'image de la carte de visite
     image_file = st.camera_input("Prenez une photo des cartes de visite")
 with col2:
-    # 2. Sélection du niveau de discussion
+    # Sélection du niveau de discussion
     niveau_discussion = st.selectbox(
         "Sélectionnez le niveau de discussion :",
         options=[
@@ -110,18 +95,13 @@ with col2:
             "Renvoyer vers transformation numérique"
         ]
     )
-    # 3. Saisie d'une note complémentaire
+    # Saisie d'une note complémentaire
     note_utilisateur = st.text_area("Ajoutez une note (facultatif) :", placeholder="Saisissez ici votre note...")
 
-# Affichage des données saisies pour vérification
 if image_file is not None:
     st.image(image_file, caption="Carte de visite capturée", use_column_width=True)
     st.write("Niveau de discussion choisi :", niveau_discussion)
     st.write("Note saisie :", note_utilisateur)
-    
-    ##############################################
-    # Étape 2 - Analyse OCR et recherche en ligne
-    ##############################################
     
     # Conversion de l'image en base64
     image_bytes = image_file.getvalue()
@@ -145,44 +125,42 @@ if image_file is not None:
             st.subheader("Texte OCR extrait :")
             st.text(ocr_text)
             
-            # Préparation des messages pour l'agent
+            # Ajout du contexte utilisateur (niveau de discussion et note)
+            contexte_utilisateur = f"Niveau de discussion : {niveau_discussion}\nNote : {note_utilisateur}"
+            
+            # Préparation des messages pour l'assistant
             messages = [
                 {"role": "system", "content": assistant_prompt_instruction},
-                {"role": "user", "content": f"Voici le texte OCR extrait :\n{ocr_text}\nExtrais les informations demandées et, si nécessaire, appelle la fonction tavily_search pour obtenir des infos en ligne."}
+                {"role": "user", "content": f"{contexte_utilisateur}\nVoici le texte OCR extrait :\n{ocr_text}\nExtrais les informations demandées et, si nécessaire, appelle la fonction tavily_search pour obtenir des infos en ligne."}
             ]
             
-            # Préparation du payload pour l'endpoint agents/completions
-            payload = {
-                "model": "mistral-small-latest",
-                "messages": messages,
-                "functions": [tavily_search_function],
-                "function_call": "auto"
-            }
+            # Transmission à l'assistant avec function calling (comme dans votre ancien code)
+            response = client_mistral.chat.complete(
+                model="mistral-small-latest",
+                messages=messages,
+                functions=[tavily_search_function],
+                function_call="auto"
+            )
             
-            # Appel à l'endpoint agents/completions
-            response = call_agent_completions(payload)
-            
-            # Si l'agent appelle la fonction tavily_search, on l'exécute
+            # Si l'assistant déclenche la fonction tavily_search, on exécute celle-ci
             if response.get("function_call"):
                 func_call = response["function_call"]
-                if func_call.get("name") == "tavily_search":
+                if func_call["name"] == "tavily_search":
                     try:
                         args = json.loads(func_call["arguments"])
                         query = args["query"]
                         search_output = tavily_search(query)
-                        # Ajout de la réponse de l'outil dans la conversation
+                        # Ajout de la réponse de la fonction dans le contexte
                         messages.append({
                             "role": "tool",
                             "name": "tavily_search",
                             "content": search_output
                         })
-                        # Préparation du payload mis à jour (sans la définition de fonction)
-                        payload = {
-                            "model": "mistral-small-latest",
-                            "messages": messages
-                        }
-                        # Relance de l'agent avec le contexte mis à jour
-                        final_response = call_agent_completions(payload)
+                        # Relance de l'assistant avec le contexte mis à jour
+                        final_response = client_mistral.chat.complete(
+                            model="mistral-small-latest",
+                            messages=messages
+                        )
                     except Exception as e:
                         final_response = {"error": str(e)}
                 else:
@@ -190,9 +168,9 @@ if image_file is not None:
             else:
                 final_response = response
             
-            # Extraction et affichage du message final
+            # Affichage du résultat final
             final_output = final_response.get("message", {}).get("content", "")
-            st.subheader("Résultat final de l'agent de recherche en ligne :")
+            st.subheader("Résultat final de l'assistant :")
             try:
                 parsed_json = json.loads(final_output)
                 st.json(parsed_json)
@@ -201,4 +179,4 @@ if image_file is not None:
                 st.text(final_output)
                 
     except Exception as e:
-        st.error(f"Erreur lors du traitement OCR ou de l'analyse par l'agent Mistral : {e}")
+        st.error(f"Erreur lors du traitement OCR ou de l'analyse par l'assistant : {e}")
