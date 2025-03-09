@@ -22,7 +22,7 @@ client_mistral = Mistral(api_key=MISTRAL_API_KEY)
 tavily_client = TavilyClient(api_key=TAVILY_API_KEY)
 
 ###########################################
-# Création de l'assistant OpenAI avec outil #
+# Assistant 1 : Extraction & recherche    #
 ###########################################
 
 assistant_prompt_instruction = """
@@ -30,9 +30,9 @@ Vous êtes Chat IA, un assistant expert en analyse de cartes de visite.
 Votre tâche est la suivante :
 1. Extraire le nom, le prénom et le nom de l'entreprise à partir du texte OCR fourni.
 2. Utiliser la fonction tavily_search pour effectuer une recherche en ligne et fournir un maximum d'informations sur l'intervenant ainsi que son entreprise.
-L'objectif est de données des informations clés sur l'intervenant et sa structure afin de faciliter la prise de contact.
-Tu cherches donc des information sur l'entreprise mais tu regardes également les derniers posts sur les réseaux sociaux
-Répondez uniquement sous forme de texte avec des catégories pour chaque partie .
+L'objectif est d'obtenir des informations clés sur l'intervenant et sa structure pour faciliter la prise de contact.
+Tu cherches donc des informations sur l'entreprise ainsi que les derniers posts sur les réseaux sociaux.
+Répondez uniquement sous forme de texte structuré avec des catégories pour chaque partie.
 """
 
 assistant = client_openai.beta.assistants.create(
@@ -58,8 +58,24 @@ assistant = client_openai.beta.assistants.create(
 )
 assistant_id = assistant.id
 
+###########################################
+# Assistant 2 : Description des produits  #
+###########################################
+
+product_assistant_instruction = """
+Vous êtes Chat IA, un expert en description de produits.
+Votre tâche est de rédiger une description détaillée de nos produits à partir des informations sur l'entreprise ainsi que des résultats de qualification du lead et de la note associée.
+Structurez votre réponse en sections claires en mettant en avant les points forts, l'utilité et l'innovation de nos produits.
+Répondez sous forme d'un texte structuré.
+"""
+product_assistant = client_openai.beta.assistants.create(
+    instructions=product_assistant_instruction,
+    model="gpt-4o"
+)
+product_assistant_id = product_assistant.id
+
 #####################################################
-# Fonctions utilitaires pour l'assistant et Tavily  #
+# Fonctions utilitaires pour assistants & Tavily     #
 #####################################################
 
 def tavily_search(query):
@@ -102,6 +118,23 @@ def print_messages_from_thread(thread_id):
                 text_val += str(content_item)
         st.write(f"{role}: {text_val}")
 
+def get_final_assistant_message(thread_id):
+    """
+    Récupère le dernier message de l'assistant dans un thread.
+    """
+    messages = client_openai.beta.threads.messages.list(thread_id=thread_id)
+    final_msg = ""
+    for msg in messages:
+        if msg.role == "assistant":
+            msg_text = ""
+            for content_item in msg.content:
+                if isinstance(content_item, dict):
+                    msg_text += content_item.get("text", "")
+                else:
+                    msg_text += str(content_item)
+            final_msg = msg_text
+    return final_msg
+
 def extract_text_from_ocr_response(ocr_response):
     """
     Parcourt les pages de la réponse OCR et extrait le texte en supprimant la ligne contenant l'image.
@@ -131,7 +164,7 @@ st.title("Le charte visite 🐱")
 # Capture de l'image via la caméra
 image_file = st.camera_input("Prenez une photo des cartes de visite")
 
-# Ajout de la qualification du leads et de la note en dessous de la zone de photo
+# Sélection de la qualification du lead et saisie d'une note
 qualification = st.selectbox(
     "Qualification du leads",
     ["Smart Talk", "Incubation collective", "Incubation individuelle", "Transformation numérique"]
@@ -162,10 +195,14 @@ if image_file is not None:
             st.subheader("Texte OCR extrait :")
             st.text(ocr_text)
             
-            # Création d'un thread pour la conversation avec l'assistant
+            ##########################################
+            # Appel du premier assistant (extraction)#
+            ##########################################
+            
+            # Création d'un thread pour la conversation avec le premier assistant
             thread = client_openai.beta.threads.create()
             
-            # Intégration de la qualification et de la note dans le message utilisateur
+            # Envoi du message utilisateur incluant la qualification et la note
             user_message = (
                 f"Qualification: {qualification}\n"
                 f"Note: {note}\n\n"
@@ -191,8 +228,47 @@ if image_file is not None:
                 run = submit_tool_outputs(thread.id, run.id, run.required_action.submit_tool_outputs.tool_calls)
                 run = wait_for_run_completion(thread.id, run.id)
             
-            st.subheader("Résultat final de l'assistant :")
+            st.subheader("Résultat du premier assistant :")
             print_messages_from_thread(thread.id)
             
+            # Récupération du message final du premier assistant
+            entreprise_infos = get_final_assistant_message(thread.id)
+            
+            ###############################################
+            # Appel du second assistant (description produit) #
+            ###############################################
+            
+            # Création d'un nouveau thread pour le second assistant
+            product_thread = client_openai.beta.threads.create()
+            
+            # Message utilisateur pour l'assistant produit
+            user_message_product = (
+                f"Voici les informations sur l'entreprise extraites précédemment :\n{entreprise_infos}\n\n"
+                f"Qualification: {qualification}\n"
+                f"Note: {note}\n\n"
+                "En vous basant sur ces informations, rédigez une description détaillée de nos produits, "
+                "en mettant en avant leurs points forts, leur utilité et leur innovation."
+            )
+            client_openai.beta.threads.messages.create(
+                thread_id=product_thread.id,
+                role="user",
+                content=user_message_product
+            )
+            
+            # Création d'un run pour que l'assistant produit traite le message
+            run_product = client_openai.beta.threads.runs.create(
+                thread_id=product_thread.id,
+                assistant_id=product_assistant_id
+            )
+            run_product = wait_for_run_completion(product_thread.id, run_product.id)
+            if run_product.status == 'failed':
+                st.error(run_product.error)
+            elif run_product.status == 'requires_action':
+                run_product = submit_tool_outputs(product_thread.id, run_product.id, run_product.required_action.submit_tool_outputs.tool_calls)
+                run_product = wait_for_run_completion(product_thread.id, run_product.id)
+            
+            st.subheader("Description des produits par le second assistant :")
+            print_messages_from_thread(product_thread.id)
+            
     except Exception as e:
-        st.error(f"Erreur lors du traitement OCR ou de l'analyse par l'assistant : {e}")
+        st.error(f"Erreur lors du traitement OCR ou de l'analyse par les assistants : {e}")
