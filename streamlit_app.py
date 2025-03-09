@@ -54,13 +54,6 @@ def tavily_search(query):
     search_result = tavily_client.get_search_context(query, search_depth="advanced", max_tokens=8000)
     return search_result
 
-def wait_for_run_completion(thread_id, run_id):
-    while True:
-        time.sleep(1)
-        run = client_mistral.chat.runs.retrieve(thread_id=thread_id, run_id=run_id)
-        if run.status in ['completed', 'failed', 'requires_action']:
-            return run
-
 def extract_text_from_ocr_response(ocr_response):
     """
     Parcourt les pages de la réponse OCR et extrait le texte en supprimant les lignes contenant l'image (commençant par "![").
@@ -146,8 +139,8 @@ if image_file is not None:
                 {"role": "user", "content": f"Voici le texte OCR extrait :\n{ocr_text}\nExtrais les informations demandées et, si nécessaire, appelle la fonction tavily_search pour obtenir des infos en ligne."}
             ]
             
-            # Appel initial à l'agent Mistral avec function calling
-            response = client_mistral.chat.complete(
+            # Appel à l'agent via l'endpoint agents.completions pour activer le function calling
+            response = client_mistral.agents.completions(
                 model="mistral-small-latest",
                 messages=messages,
                 functions=[tavily_search_function],
@@ -169,7 +162,7 @@ if image_file is not None:
                             "content": search_output
                         })
                         # Relance de l'agent avec le contexte mis à jour
-                        final_response = client_mistral.chat.complete(
+                        final_response = client_mistral.agents.completions(
                             model="mistral-small-latest",
                             messages=messages
                         )
@@ -191,4 +184,5 @@ if image_file is not None:
                 st.text(final_output)
                 
     except Exception as e:
-        st.error(f"Erreur lors du traitement OCR ou de l'analyse par l'assistant Mistral : {e}")
+        st.error(f"Erreur lors du traitement OCR ou de l'analyse par l'agent Mistral : {e}")
+
