@@ -6,7 +6,10 @@ import time
 from mistralai import Mistral
 from tavily import TavilyClient
 
-# Récupération des clés API
+##############################################
+# Récupération et initialisation des clients #
+##############################################
+
 MISTRAL_API_KEY = os.getenv("MISTRAL_API_KEY")
 TAVILY_API_KEY = os.getenv("TAVILY_API_KEY")
 
@@ -14,7 +17,6 @@ if not MISTRAL_API_KEY or not TAVILY_API_KEY:
     st.error("Veuillez définir MISTRAL_API_KEY et TAVILY_API_KEY dans vos variables d'environnement.")
     st.stop()
 
-# Initialisation des clients Mistral et Tavily
 client_mistral = Mistral(api_key=MISTRAL_API_KEY)
 tavily_client = TavilyClient(api_key=TAVILY_API_KEY)
 
@@ -57,7 +59,6 @@ assistant_id = assistant.id
 ##############################################
 
 def tavily_search(query):
-    # Effectue une recherche en ligne via Tavily
     return tavily_client.get_search_context(query, search_depth="advanced", max_tokens=8000)
 
 def wait_for_run_completion(thread_id, run_id):
@@ -84,7 +85,6 @@ def submit_tool_outputs(thread_id, run_id, tools_to_call):
     )
 
 def get_final_assistant_message(thread_id):
-    # Récupère le dernier message de l'assistant dans le thread
     messages = client_mistral.chat.messages.list(thread_id=thread_id)
     assistant_messages = [msg for msg in messages if msg.role == "assistant"]
     if assistant_messages:
@@ -99,9 +99,6 @@ def get_final_assistant_message(thread_id):
     return None
 
 def extract_text_from_ocr_response(ocr_response):
-    """
-    Parcourt les pages de la réponse OCR et extrait le texte en supprimant les lignes contenant l'image.
-    """
     extracted_text = ""
     if hasattr(ocr_response, "pages"):
         pages = ocr_response.pages
@@ -118,17 +115,13 @@ def extract_text_from_ocr_response(ocr_response):
     return extracted_text.strip()
 
 def format_assistant_output(raw_output):
-    """
-    Nettoie la sortie brute de l'assistant.
-    Si elle commence par "json\n", retire ce préfixe et tente de parser le JSON.
-    """
     prefix = "json\n"
     cleaned = raw_output.strip()
     if cleaned.lower().startswith(prefix):
         cleaned = cleaned[len(prefix):].strip()
     try:
         return json.loads(cleaned)
-    except Exception as e:
+    except Exception:
         return None
 
 ##############################################
@@ -179,7 +172,7 @@ if image_file is not None:
                 content=user_message
             )
             
-            # Création d'un run pour que l'assistant traite le message
+            # Lancer un run pour que l'assistant traite le message
             run = client_mistral.chat.runs.create(
                 thread_id=thread.id,
                 assistant_id=assistant_id
@@ -191,7 +184,6 @@ if image_file is not None:
                 run = submit_tool_outputs(thread.id, run.id, run.required_action.submit_tool_outputs.tool_calls)
                 run = wait_for_run_completion(thread.id, run.id)
             
-            # Récupération du résultat final de l'assistant
             raw_output = get_final_assistant_message(thread.id)
             st.subheader("Résultat final de l'assistant :")
             if raw_output:
@@ -204,5 +196,31 @@ if image_file is not None:
             else:
                 st.warning("Aucun message de l'assistant n'a été trouvé.")
             
+            ##############################################
+            # Section Sujets abordés et commentaires
+            ##############################################
+            st.markdown("---")
+            st.subheader("Sujets abordés")
+            sujet1 = st.checkbox("Rencontre courtoise mais potentiel de faire plus ensemble")
+            sujet2 = st.checkbox("Relancer sur le programme incubation collective")
+            sujet3 = st.checkbox("Relancer sur le programme d'incubation individuelle")
+            sujet4 = st.checkbox("Mettre en relation avec la transformation numérique car on ne peut pas l'accompagner")
+            commentaires = st.text_area("Commentaires additionnels", placeholder="Ajouter des commentaires ici...")
+            
+            if st.button("Valider les sujets"):
+                sujets_selectionnes = []
+                if sujet1:
+                    sujets_selectionnes.append("Rencontre courtoise mais potentiel de faire plus ensemble")
+                if sujet2:
+                    sujets_selectionnes.append("Relancer sur le programme incubation collective")
+                if sujet3:
+                    sujets_selectionnes.append("Relancer sur le programme d'incubation individuelle")
+                if sujet4:
+                    sujets_selectionnes.append("Mettre en relation avec la transformation numérique car on ne peut pas l'accompagner")
+                st.subheader("Sujets sélectionnés")
+                st.write(sujets_selectionnes)
+                st.subheader("Commentaires additionnels")
+                st.write(commentaires)
+                
     except Exception as e:
         st.error(f"Erreur lors du traitement OCR ou de l'analyse par l'assistant Mistral : {e}")
