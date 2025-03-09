@@ -17,22 +17,22 @@ if not MISTRAL_API_KEY or not TAVILY_API_KEY:
     st.error("Veuillez définir MISTRAL_API_KEY et TAVILY_API_KEY dans vos variables d'environnement.")
     st.stop()
 
-client_mistral = Mistral(api_key=MISTRAL_API_KEY)
+client = Mistral(api_key=MISTRAL_API_KEY)
 tavily_client = TavilyClient(api_key=TAVILY_API_KEY)
 
 ##############################################
-# Configuration de l'assistant Mistral avec function calling
+# Configuration de l'assistant avec function calling
 ##############################################
 
-assistant_prompt_instruction = """
+assistant_instructions = """
 Vous êtes Chat IA, un assistant expert en analyse de cartes de visite.
 Votre tâche est la suivante:
 1. Extraire le nom, le prénom et le nom de l'entreprise à partir du texte OCR fourni.
-2. Utiliser la fonction tavily_search pour effectuer une recherche en ligne et fournir un maximum d'informations sur l'intervenant et son entreprise.
+2. Utiliser la fonction tavily_search pour effectuer une recherche en ligne et obtenir un maximum d'informations sur l'intervenant et son entreprise.
 Répondez uniquement sous forme d'un objet JSON avec les clés "nom", "prenom", "entreprise" et "infos_en_ligne".
 """
 
-tavily_search_function = {
+tavily_function = {
     "name": "tavily_search",
     "description": "Recherche en ligne pour obtenir des informations sur une personne ou une entreprise.",
     "parameters": {
@@ -47,11 +47,10 @@ tavily_search_function = {
     }
 }
 
-# Correction : on utilise client_mistral.assistants.create() et non pas client_mistral.chat.assistants.create()
-assistant = client_mistral.assistants.create(
-    instructions=assistant_prompt_instruction,
+assistant = client.assistants.create(
+    instructions=assistant_instructions,
     model="mistral-small-latest",
-    functions=[tavily_search_function]
+    functions=[tavily_function]
 )
 assistant_id = assistant.id
 
@@ -62,62 +61,56 @@ assistant_id = assistant.id
 def tavily_search(query):
     return tavily_client.get_search_context(query, search_depth="advanced", max_tokens=8000)
 
-def wait_for_run_completion(thread_id, run_id):
+def wait_for_run(thread_id, run_id):
     while True:
         time.sleep(1)
-        run = client_mistral.runs.retrieve(thread_id=thread_id, run_id=run_id)
-        if run.status in ['completed', 'failed', 'requires_action']:
+        run = client.runs.retrieve(thread_id=thread_id, run_id=run_id)
+        if run.status in ["completed", "failed", "requires_action"]:
             return run
 
-def submit_tool_outputs(thread_id, run_id, tools_to_call):
-    tool_output_array = []
-    for tool in tools_to_call:
-        tool_call_id = tool.id
-        function_name = tool.function.name
-        function_args = tool.function.arguments
-        if function_name == "tavily_search":
-            query = json.loads(function_args)["query"]
-            output = tavily_search(query)
-            tool_output_array.append({"tool_call_id": tool_call_id, "output": output})
-    return client_mistral.runs.submit_tool_outputs(
+def submit_tool_outputs(thread_id, run_id, tool_calls):
+    outputs = []
+    for call in tool_calls:
+        call_id = call.id
+        func_name = call.function.name
+        args = json.loads(call.function.arguments)
+        if func_name == "tavily_search":
+            result = tavily_search(args["query"])
+            outputs.append({"tool_call_id": call_id, "output": result})
+    return client.runs.submit_tool_outputs(
         thread_id=thread_id,
         run_id=run_id,
-        tool_outputs=tool_output_array
+        tool_outputs=outputs
     )
 
-def get_final_assistant_message(thread_id):
-    messages = client_mistral.messages.list(thread_id=thread_id)
-    assistant_messages = [msg for msg in messages if msg.role == "assistant"]
-    if assistant_messages:
-        final_msg = assistant_messages[-1]
-        text_val = ""
-        for content_item in final_msg.content:
-            if isinstance(content_item, dict):
-                text_val += content_item.get("text", "")
+def get_last_message(thread_id):
+    messages = client.messages.list(thread_id=thread_id)
+    assistant_msgs = [m for m in messages if m.role == "assistant"]
+    if assistant_msgs:
+        last = assistant_msgs[-1]
+        text = ""
+        for c in last.content:
+            if isinstance(c, dict):
+                text += c.get("text", "")
             else:
-                text_val += str(content_item)
-        return text_val.strip()
+                text += str(c)
+        return text.strip()
     return None
 
-def extract_text_from_ocr_response(ocr_response):
-    extracted_text = ""
-    if hasattr(ocr_response, "pages"):
-        pages = ocr_response.pages
-    elif isinstance(ocr_response, list):
-        pages = ocr_response
-    else:
-        pages = []
-    for page in pages:
-        if hasattr(page, "markdown") and page.markdown:
-            lines = page.markdown.split("\n")
-            filtered_lines = [line.strip() for line in lines if not line.startswith("![")]
-            if filtered_lines:
-                extracted_text += "\n".join(filtered_lines) + "\n"
-    return extracted_text.strip()
+def extract_ocr_text(ocr_response):
+    text = ""
+    pages = ocr_response.pages if hasattr(ocr_response, "pages") else ocr_response if isinstance(ocr_response, list) else []
+    for p in pages:
+        if hasattr(p, "markdown") and p.markdown:
+            lines = p.markdown.split("\n")
+            filtered = [l.strip() for l in lines if not l.startswith("![")]
+            if filtered:
+                text += "\n".join(filtered) + "\n"
+    return text.strip()
 
-def format_assistant_output(raw_output):
+def format_output(raw):
     prefix = "json\n"
-    cleaned = raw_output.strip()
+    cleaned = raw.strip()
     if cleaned.lower().startswith(prefix):
         cleaned = cleaned[len(prefix):].strip()
     try:
@@ -132,324 +125,74 @@ def format_assistant_output(raw_output):
 st.set_page_config(page_title="Le charte visite 🐱", layout="centered")
 st.title("Le charte visite 🐱")
 
-# Affichage de la possibilité de prendre une photo et de renseigner les sujets et commentaires
+# Affichage immédiat de la capture et des inputs supplémentaires
 image_file = st.camera_input("Prenez une photo des cartes de visite")
 
 st.markdown("### Sujets abordés")
-sujet1 = st.checkbox("Rencontre courtoise mais potentiel de faire plus ensemble")
-sujet2 = st.checkbox("Relancer sur le programme incubation collective")
-sujet3 = st.checkbox("Relancer sur le programme d'incubation individuelle")
-sujet4 = st.checkbox("Mettre en relation avec la transformation numérique car on ne peut pas l'accompagner")
-commentaires = st.text_area("Commentaires additionnels", placeholder="Ajouter des commentaires ici...")
+s1 = st.checkbox("Rencontre courtoise mais potentiel de faire plus ensemble")
+s2 = st.checkbox("Relancer sur le programme incubation collective")
+s3 = st.checkbox("Relancer sur le programme d'incubation individuelle")
+s4 = st.checkbox("Mettre en relation avec la transformation numérique car on ne peut pas l'accompagner")
+comments = st.text_area("Commentaires additionnels", placeholder="Ajouter des commentaires ici...")
 
-# Bouton pour lancer l'analyse (OCR + assistant)
 if st.button("Lancer l'analyse"):
     if image_file is None:
-        st.error("Veuillez prendre une photo avant de lancer l'analyse.")
+        st.error("Veuillez prendre une photo.")
     else:
         st.image(image_file, caption="Carte de visite capturée", use_column_width=True)
-        image_bytes = image_file.getvalue()
-        base64_image = base64.b64encode(image_bytes).decode("utf-8")
-        image_data_uri = f"data:image/jpeg;base64,{base64_image}"
-    
+        img_bytes = image_file.getvalue()
+        b64 = base64.b64encode(img_bytes).decode("utf-8")
+        uri = f"data:image/jpeg;base64,{b64}"
         try:
-            # Appel à l'API OCR de Mistral
-            ocr_response = client_mistral.ocr.process(
+            # Appel OCR
+            ocr_resp = client.ocr.process(
                 model="mistral-ocr-latest",
-                document={"type": "image_url", "image_url": image_data_uri}
+                document={"type": "image_url", "image_url": uri}
             )
-            st.subheader("Résultat brut de l'OCR :")
-            st.write(ocr_response)
-        
-            # Extraction du texte exploitable
-            ocr_text = extract_text_from_ocr_response(ocr_response)
+            st.subheader("OCR brut:")
+            st.write(ocr_resp)
+            ocr_text = extract_ocr_text(ocr_resp)
             if not ocr_text:
-                st.warning("Aucun texte exploitable extrait par l'OCR.")
+                st.warning("Aucun texte extrait.")
             else:
-                st.subheader("Texte OCR extrait :")
+                st.subheader("Texte OCR:")
                 st.text(ocr_text)
-                
-                # Création d'un thread pour la conversation avec l'assistant Mistral
-                thread = client_mistral.threads.create()
-                
-                # Envoi du message utilisateur avec le texte OCR et les instructions
-                user_message = (
+                # Création du thread et envoi du message à l'assistant
+                thread = client.threads.create()
+                msg = (
                     f"Voici le texte OCR extrait :\n{ocr_text}\n\n"
                     "Extrais les informations suivantes : nom, prenom, entreprise. "
                     "Ensuite, effectue une recherche en ligne pour obtenir un maximum d'informations sur l'intervenant et son entreprise."
                 )
-                client_mistral.messages.create(
-                    thread_id=thread.id,
-                    role="user",
-                    content=user_message
-                )
-                
-                # Lancer un run pour que l'assistant traite le message
-                run = client_mistral.runs.create(
-                    thread_id=thread.id,
-                    assistant_id=assistant_id
-                )
-                run = wait_for_run_completion(thread.id, run.id)
-                if run.status == 'failed':
+                client.messages.create(thread_id=thread.id, role="user", content=msg)
+                run = client.runs.create(thread_id=thread.id, assistant_id=assistant_id)
+                run = wait_for_run(thread.id, run.id)
+                if run.status == "failed":
                     st.error(run.error)
-                elif run.status == 'requires_action':
+                elif run.status == "requires_action":
                     run = submit_tool_outputs(thread.id, run.id, run.required_action.submit_tool_outputs.tool_calls)
-                    run = wait_for_run_completion(thread.id, run.id)
-                
-                raw_output = get_final_assistant_message(thread.id)
-                st.subheader("Résultat final de l'assistant :")
-                if raw_output:
-                    parsed_output = format_assistant_output(raw_output)
-                    if parsed_output:
-                        st.json(parsed_output)
+                    run = wait_for_run(thread.id, run.id)
+                raw_msg = get_last_message(thread.id)
+                st.subheader("Résultat assistant:")
+                if raw_msg:
+                    parsed = format_output(raw_msg)
+                    if parsed:
+                        st.json(parsed)
                     else:
-                        st.text("Erreur lors du parsing JSON, voici le résultat brut :")
-                        st.text(raw_output)
+                        st.text("Erreur de parsing, voici le message brut:")
+                        st.text(raw_msg)
                 else:
-                    st.warning("Aucun message de l'assistant n'a été trouvé.")
+                    st.warning("Pas de message de l'assistant.")
                 
-                # Affichage des sujets et des commentaires saisis
+                # Affichage des inputs utilisateurs supplémentaires
                 st.markdown("---")
                 st.subheader("Sujets et commentaires saisis")
-                sujets = []
-                if sujet1:
-                    sujets.append("Rencontre courtoise mais potentiel de faire plus ensemble")
-                if sujet2:
-                    sujets.append("Relancer sur le programme incubation collective")
-                if sujet3:
-                    sujets.append("Relancer sur le programme d'incubation individuelle")
-                if sujet4:
-                    sujets.append("Mettre en relation avec la transformation numérique car on ne peut pas l'accompagner")
-                st.write("**Sujets sélectionnés :**", sujets)
-                st.write("**Commentaires additionnels :**", commentaires)
-                
+                selected = []
+                if s1: selected.append("Rencontre courtoise mais potentiel de faire plus ensemble")
+                if s2: selected.append("Relancer sur le programme incubation collective")
+                if s3: selected.append("Relancer sur le programme d'incubation individuelle")
+                if s4: selected.append("Mettre en relation avec la transformation numérique car on ne peut pas l'accompagner")
+                st.write("Sujets sélectionnés:", selected)
+                st.write("Commentaires:", comments)
         except Exception as e:
-            st.error(f"Erreur lors du traitement OCR ou de l'analyse par l'assistant Mistral : {e}")
-import streamlit as st
-import os
-import base64
-import json
-import time
-from mistralai import Mistral
-from tavily import TavilyClient
-
-##############################################
-# Récupération et initialisation des clients #
-##############################################
-
-MISTRAL_API_KEY = os.getenv("MISTRAL_API_KEY")
-TAVILY_API_KEY = os.getenv("TAVILY_API_KEY")
-
-if not MISTRAL_API_KEY or not TAVILY_API_KEY:
-    st.error("Veuillez définir MISTRAL_API_KEY et TAVILY_API_KEY dans vos variables d'environnement.")
-    st.stop()
-
-client_mistral = Mistral(api_key=MISTRAL_API_KEY)
-tavily_client = TavilyClient(api_key=TAVILY_API_KEY)
-
-##############################################
-# Configuration de l'assistant Mistral avec function calling
-##############################################
-
-assistant_prompt_instruction = """
-Vous êtes Chat IA, un assistant expert en analyse de cartes de visite.
-Votre tâche est la suivante:
-1. Extraire le nom, le prénom et le nom de l'entreprise à partir du texte OCR fourni.
-2. Utiliser la fonction tavily_search pour effectuer une recherche en ligne et fournir un maximum d'informations sur l'intervenant et son entreprise.
-Répondez uniquement sous forme d'un objet JSON avec les clés "nom", "prenom", "entreprise" et "infos_en_ligne".
-"""
-
-tavily_search_function = {
-    "name": "tavily_search",
-    "description": "Recherche en ligne pour obtenir des informations sur une personne ou une entreprise.",
-    "parameters": {
-        "type": "object",
-        "properties": {
-            "query": {
-                "type": "string",
-                "description": "La requête de recherche, par exemple 'John Doe, PDG de Example Corp'."
-            }
-        },
-        "required": ["query"]
-    }
-}
-
-# Correction : on utilise client_mistral.assistants.create() et non pas client_mistral.chat.assistants.create()
-assistant = client_mistral.assistants.create(
-    instructions=assistant_prompt_instruction,
-    model="mistral-small-latest",
-    functions=[tavily_search_function]
-)
-assistant_id = assistant.id
-
-##############################################
-# Fonctions utilitaires
-##############################################
-
-def tavily_search(query):
-    return tavily_client.get_search_context(query, search_depth="advanced", max_tokens=8000)
-
-def wait_for_run_completion(thread_id, run_id):
-    while True:
-        time.sleep(1)
-        run = client_mistral.runs.retrieve(thread_id=thread_id, run_id=run_id)
-        if run.status in ['completed', 'failed', 'requires_action']:
-            return run
-
-def submit_tool_outputs(thread_id, run_id, tools_to_call):
-    tool_output_array = []
-    for tool in tools_to_call:
-        tool_call_id = tool.id
-        function_name = tool.function.name
-        function_args = tool.function.arguments
-        if function_name == "tavily_search":
-            query = json.loads(function_args)["query"]
-            output = tavily_search(query)
-            tool_output_array.append({"tool_call_id": tool_call_id, "output": output})
-    return client_mistral.runs.submit_tool_outputs(
-        thread_id=thread_id,
-        run_id=run_id,
-        tool_outputs=tool_output_array
-    )
-
-def get_final_assistant_message(thread_id):
-    messages = client_mistral.messages.list(thread_id=thread_id)
-    assistant_messages = [msg for msg in messages if msg.role == "assistant"]
-    if assistant_messages:
-        final_msg = assistant_messages[-1]
-        text_val = ""
-        for content_item in final_msg.content:
-            if isinstance(content_item, dict):
-                text_val += content_item.get("text", "")
-            else:
-                text_val += str(content_item)
-        return text_val.strip()
-    return None
-
-def extract_text_from_ocr_response(ocr_response):
-    extracted_text = ""
-    if hasattr(ocr_response, "pages"):
-        pages = ocr_response.pages
-    elif isinstance(ocr_response, list):
-        pages = ocr_response
-    else:
-        pages = []
-    for page in pages:
-        if hasattr(page, "markdown") and page.markdown:
-            lines = page.markdown.split("\n")
-            filtered_lines = [line.strip() for line in lines if not line.startswith("![")]
-            if filtered_lines:
-                extracted_text += "\n".join(filtered_lines) + "\n"
-    return extracted_text.strip()
-
-def format_assistant_output(raw_output):
-    prefix = "json\n"
-    cleaned = raw_output.strip()
-    if cleaned.lower().startswith(prefix):
-        cleaned = cleaned[len(prefix):].strip()
-    try:
-        return json.loads(cleaned)
-    except Exception:
-        return None
-
-##############################################
-# Interface Streamlit
-##############################################
-
-st.set_page_config(page_title="Le charte visite 🐱", layout="centered")
-st.title("Le charte visite 🐱")
-
-# Affichage de la possibilité de prendre une photo et de renseigner les sujets et commentaires
-image_file = st.camera_input("Prenez une photo des cartes de visite")
-
-st.markdown("### Sujets abordés")
-sujet1 = st.checkbox("Rencontre courtoise mais potentiel de faire plus ensemble")
-sujet2 = st.checkbox("Relancer sur le programme incubation collective")
-sujet3 = st.checkbox("Relancer sur le programme d'incubation individuelle")
-sujet4 = st.checkbox("Mettre en relation avec la transformation numérique car on ne peut pas l'accompagner")
-commentaires = st.text_area("Commentaires additionnels", placeholder="Ajouter des commentaires ici...")
-
-# Bouton pour lancer l'analyse (OCR + assistant)
-if st.button("Lancer l'analyse"):
-    if image_file is None:
-        st.error("Veuillez prendre une photo avant de lancer l'analyse.")
-    else:
-        st.image(image_file, caption="Carte de visite capturée", use_column_width=True)
-        image_bytes = image_file.getvalue()
-        base64_image = base64.b64encode(image_bytes).decode("utf-8")
-        image_data_uri = f"data:image/jpeg;base64,{base64_image}"
-    
-        try:
-            # Appel à l'API OCR de Mistral
-            ocr_response = client_mistral.ocr.process(
-                model="mistral-ocr-latest",
-                document={"type": "image_url", "image_url": image_data_uri}
-            )
-            st.subheader("Résultat brut de l'OCR :")
-            st.write(ocr_response)
-        
-            # Extraction du texte exploitable
-            ocr_text = extract_text_from_ocr_response(ocr_response)
-            if not ocr_text:
-                st.warning("Aucun texte exploitable extrait par l'OCR.")
-            else:
-                st.subheader("Texte OCR extrait :")
-                st.text(ocr_text)
-                
-                # Création d'un thread pour la conversation avec l'assistant Mistral
-                thread = client_mistral.threads.create()
-                
-                # Envoi du message utilisateur avec le texte OCR et les instructions
-                user_message = (
-                    f"Voici le texte OCR extrait :\n{ocr_text}\n\n"
-                    "Extrais les informations suivantes : nom, prenom, entreprise. "
-                    "Ensuite, effectue une recherche en ligne pour obtenir un maximum d'informations sur l'intervenant et son entreprise."
-                )
-                client_mistral.messages.create(
-                    thread_id=thread.id,
-                    role="user",
-                    content=user_message
-                )
-                
-                # Lancer un run pour que l'assistant traite le message
-                run = client_mistral.runs.create(
-                    thread_id=thread.id,
-                    assistant_id=assistant_id
-                )
-                run = wait_for_run_completion(thread.id, run.id)
-                if run.status == 'failed':
-                    st.error(run.error)
-                elif run.status == 'requires_action':
-                    run = submit_tool_outputs(thread.id, run.id, run.required_action.submit_tool_outputs.tool_calls)
-                    run = wait_for_run_completion(thread.id, run.id)
-                
-                raw_output = get_final_assistant_message(thread.id)
-                st.subheader("Résultat final de l'assistant :")
-                if raw_output:
-                    parsed_output = format_assistant_output(raw_output)
-                    if parsed_output:
-                        st.json(parsed_output)
-                    else:
-                        st.text("Erreur lors du parsing JSON, voici le résultat brut :")
-                        st.text(raw_output)
-                else:
-                    st.warning("Aucun message de l'assistant n'a été trouvé.")
-                
-                # Affichage des sujets et des commentaires saisis
-                st.markdown("---")
-                st.subheader("Sujets et commentaires saisis")
-                sujets = []
-                if sujet1:
-                    sujets.append("Rencontre courtoise mais potentiel de faire plus ensemble")
-                if sujet2:
-                    sujets.append("Relancer sur le programme incubation collective")
-                if sujet3:
-                    sujets.append("Relancer sur le programme d'incubation individuelle")
-                if sujet4:
-                    sujets.append("Mettre en relation avec la transformation numérique car on ne peut pas l'accompagner")
-                st.write("**Sujets sélectionnés :**", sujets)
-                st.write("**Commentaires additionnels :**", commentaires)
-                
-        except Exception as e:
-            st.error(f"Erreur lors du traitement OCR ou de l'analyse par l'assistant Mistral : {e}")
-
+            st.error(f"Erreur lors du traitement OCR ou de l'analyse: {e}")
