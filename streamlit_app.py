@@ -2,6 +2,7 @@ import streamlit as st
 import os
 import base64
 import json
+import requests
 from mistralai import Mistral
 from tavily import TavilyClient
 
@@ -13,9 +14,23 @@ if not MISTRAL_API_KEY or not TAVILY_API_KEY:
     st.error("Veuillez définir MISTRAL_API_KEY et TAVILY_API_KEY dans vos variables d'environnement.")
     st.stop()
 
-# Initialisation des clients Mistral et Tavily
+# Initialisation des clients OCR (Mistral) et Tavily
 client_mistral = Mistral(api_key=MISTRAL_API_KEY)
 tavily_client = TavilyClient(api_key=TAVILY_API_KEY)
+
+##############################################
+# Fonction d'appel direct à l'API Agents completions
+##############################################
+
+def call_agent_completions(payload):
+    url = "https://api.mistral.ai/v1/agents/completions"
+    headers = {
+        "Authorization": f"Bearer {MISTRAL_API_KEY}",
+        "Content-Type": "application/json"
+    }
+    response = requests.post(url, headers=headers, json=payload)
+    response.raise_for_status()
+    return response.json()
 
 ##############################################
 # Configuration de l'agent pour la recherche en ligne
@@ -73,7 +88,7 @@ def extract_text_from_ocr_response(ocr_response):
     return extracted_text.strip()
 
 ##############################################
-# Interface Streamlit : Etape 1 - Entrée utilisateur
+# Interface Streamlit : Étape 1 - Entrée utilisateur
 ##############################################
 
 st.set_page_config(page_title="Le charte visite 🐱", layout="centered")
@@ -105,7 +120,7 @@ if image_file is not None:
     st.write("Note saisie :", note_utilisateur)
     
     ##############################################
-    # Etape 2 - Analyse de l'OCR et recherche en ligne
+    # Étape 2 - Analyse OCR et recherche en ligne
     ##############################################
     
     # Conversion de l'image en base64
@@ -144,8 +159,8 @@ if image_file is not None:
                 "function_call": "auto"
             }
             
-            # Appel à l'endpoint agents/completions directement via le client
-            response = client_mistral.request("POST", "/v1/agents/completions", json=payload)
+            # Appel à l'endpoint agents/completions
+            response = call_agent_completions(payload)
             
             # Si l'agent appelle la fonction tavily_search, on l'exécute
             if response.get("function_call"):
@@ -161,13 +176,13 @@ if image_file is not None:
                             "name": "tavily_search",
                             "content": search_output
                         })
-                        # Préparation du payload mis à jour
+                        # Préparation du payload mis à jour (sans la définition de fonction)
                         payload = {
                             "model": "mistral-small-latest",
                             "messages": messages
                         }
                         # Relance de l'agent avec le contexte mis à jour
-                        final_response = client_mistral.request("POST", "/v1/agents/completions", json=payload)
+                        final_response = call_agent_completions(payload)
                     except Exception as e:
                         final_response = {"error": str(e)}
                 else:
