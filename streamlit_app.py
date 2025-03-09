@@ -131,96 +131,98 @@ def format_assistant_output(raw_output):
 st.set_page_config(page_title="Le charte visite 🐱", layout="centered")
 st.title("Le charte visite 🐱")
 
-# Capture de l'image via la caméra
+# Affichage de la possibilité de prendre une photo
 image_file = st.camera_input("Prenez une photo des cartes de visite")
 
-if image_file is not None:
-    st.image(image_file, caption="Carte de visite capturée", use_column_width=True)
-    image_bytes = image_file.getvalue()
-    base64_image = base64.b64encode(image_bytes).decode("utf-8")
-    image_data_uri = f"data:image/jpeg;base64,{base64_image}"
+# Affichage des cases à cocher pour les sujets abordés
+st.markdown("### Sujets abordés")
+sujet1 = st.checkbox("Rencontre courtoise mais potentiel de faire plus ensemble")
+sujet2 = st.checkbox("Relancer sur le programme incubation collective")
+sujet3 = st.checkbox("Relancer sur le programme d'incubation individuelle")
+sujet4 = st.checkbox("Mettre en relation avec la transformation numérique car on ne peut pas l'accompagner")
+commentaires = st.text_area("Commentaires additionnels", placeholder="Ajouter des commentaires ici...")
+
+# Bouton pour lancer l'analyse (OCR + assistant)
+if st.button("Lancer l'analyse"):
+
+    if image_file is None:
+        st.error("Veuillez prendre une photo avant de lancer l'analyse.")
+    else:
+        st.image(image_file, caption="Carte de visite capturée", use_column_width=True)
+        image_bytes = image_file.getvalue()
+        base64_image = base64.b64encode(image_bytes).decode("utf-8")
+        image_data_uri = f"data:image/jpeg;base64,{base64_image}"
     
-    try:
-        # Appel à l'API OCR de Mistral
-        ocr_response = client_mistral.ocr.process(
-            model="mistral-ocr-latest",
-            document={"type": "image_url", "image_url": image_data_uri}
-        )
-        st.subheader("Résultat brut de l'OCR :")
-        st.write(ocr_response)
+        try:
+            # Appel à l'API OCR de Mistral
+            ocr_response = client_mistral.ocr.process(
+                model="mistral-ocr-latest",
+                document={"type": "image_url", "image_url": image_data_uri}
+            )
+            st.subheader("Résultat brut de l'OCR :")
+            st.write(ocr_response)
         
-        # Extraction du texte exploitable
-        ocr_text = extract_text_from_ocr_response(ocr_response)
-        if not ocr_text:
-            st.warning("Aucun texte exploitable extrait par l'OCR.")
-        else:
-            st.subheader("Texte OCR extrait :")
-            st.text(ocr_text)
-            
-            # Création d'un thread pour la conversation avec l'assistant Mistral
-            thread = client_mistral.chat.threads.create()
-            
-            # Envoi du message utilisateur contenant le texte OCR et les instructions
-            user_message = (
-                f"Voici le texte OCR extrait :\n{ocr_text}\n\n"
-                "Extrais les informations suivantes : nom, prenom, entreprise. "
-                "Ensuite, effectue une recherche en ligne pour obtenir un maximum d'informations sur l'intervenant et son entreprise."
-            )
-            client_mistral.chat.messages.create(
-                thread_id=thread.id,
-                role="user",
-                content=user_message
-            )
-            
-            # Lancer un run pour que l'assistant traite le message
-            run = client_mistral.chat.runs.create(
-                thread_id=thread.id,
-                assistant_id=assistant_id
-            )
-            run = wait_for_run_completion(thread.id, run.id)
-            if run.status == 'failed':
-                st.error(run.error)
-            elif run.status == 'requires_action':
-                run = submit_tool_outputs(thread.id, run.id, run.required_action.submit_tool_outputs.tool_calls)
-                run = wait_for_run_completion(thread.id, run.id)
-            
-            raw_output = get_final_assistant_message(thread.id)
-            st.subheader("Résultat final de l'assistant :")
-            if raw_output:
-                parsed_output = format_assistant_output(raw_output)
-                if parsed_output:
-                    st.json(parsed_output)
-                else:
-                    st.text("Erreur lors du parsing JSON, voici le résultat brut :")
-                    st.text(raw_output)
+            # Extraction du texte exploitable
+            ocr_text = extract_text_from_ocr_response(ocr_response)
+            if not ocr_text:
+                st.warning("Aucun texte exploitable extrait par l'OCR.")
             else:
-                st.warning("Aucun message de l'assistant n'a été trouvé.")
-            
-            ##############################################
-            # Section Sujets abordés et commentaires
-            ##############################################
-            st.markdown("---")
-            st.subheader("Sujets abordés")
-            sujet1 = st.checkbox("Rencontre courtoise mais potentiel de faire plus ensemble")
-            sujet2 = st.checkbox("Relancer sur le programme incubation collective")
-            sujet3 = st.checkbox("Relancer sur le programme d'incubation individuelle")
-            sujet4 = st.checkbox("Mettre en relation avec la transformation numérique car on ne peut pas l'accompagner")
-            commentaires = st.text_area("Commentaires additionnels", placeholder="Ajouter des commentaires ici...")
-            
-            if st.button("Valider les sujets"):
-                sujets_selectionnes = []
-                if sujet1:
-                    sujets_selectionnes.append("Rencontre courtoise mais potentiel de faire plus ensemble")
-                if sujet2:
-                    sujets_selectionnes.append("Relancer sur le programme incubation collective")
-                if sujet3:
-                    sujets_selectionnes.append("Relancer sur le programme d'incubation individuelle")
-                if sujet4:
-                    sujets_selectionnes.append("Mettre en relation avec la transformation numérique car on ne peut pas l'accompagner")
-                st.subheader("Sujets sélectionnés")
-                st.write(sujets_selectionnes)
-                st.subheader("Commentaires additionnels")
-                st.write(commentaires)
+                st.subheader("Texte OCR extrait :")
+                st.text(ocr_text)
                 
-    except Exception as e:
-        st.error(f"Erreur lors du traitement OCR ou de l'analyse par l'assistant Mistral : {e}")
+                # Création d'un thread pour la conversation avec l'assistant Mistral
+                thread = client_mistral.chat.threads.create()
+                
+                # Envoi du message utilisateur contenant le texte OCR et les instructions
+                user_message = (
+                    f"Voici le texte OCR extrait :\n{ocr_text}\n\n"
+                    "Extrais les informations suivantes : nom, prenom, entreprise. "
+                    "Ensuite, effectue une recherche en ligne pour obtenir un maximum d'informations sur l'intervenant et son entreprise."
+                )
+                client_mistral.chat.messages.create(
+                    thread_id=thread.id,
+                    role="user",
+                    content=user_message
+                )
+                
+                # Lancer un run pour que l'assistant traite le message
+                run = client_mistral.chat.runs.create(
+                    thread_id=thread.id,
+                    assistant_id=assistant_id
+                )
+                run = wait_for_run_completion(thread.id, run.id)
+                if run.status == 'failed':
+                    st.error(run.error)
+                elif run.status == 'requires_action':
+                    run = submit_tool_outputs(thread.id, run.id, run.required_action.submit_tool_outputs.tool_calls)
+                    run = wait_for_run_completion(thread.id, run.id)
+                
+                raw_output = get_final_assistant_message(thread.id)
+                st.subheader("Résultat final de l'assistant :")
+                if raw_output:
+                    parsed_output = format_assistant_output(raw_output)
+                    if parsed_output:
+                        st.json(parsed_output)
+                    else:
+                        st.text("Erreur lors du parsing JSON, voici le résultat brut :")
+                        st.text(raw_output)
+                else:
+                    st.warning("Aucun message de l'assistant n'a été trouvé.")
+                
+                # Affichage des sujets et des commentaires saisis
+                st.markdown("---")
+                st.subheader("Sujets et commentaires saisis")
+                sujets = []
+                if sujet1:
+                    sujets.append("Rencontre courtoise mais potentiel de faire plus ensemble")
+                if sujet2:
+                    sujets.append("Relancer sur le programme incubation collective")
+                if sujet3:
+                    sujets.append("Relancer sur le programme d'incubation individuelle")
+                if sujet4:
+                    sujets.append("Mettre en relation avec la transformation numérique car on ne peut pas l'accompagner")
+                st.write("**Sujets sélectionnés :**", sujets)
+                st.write("**Commentaires additionnels :**", commentaires)
+                
+        except Exception as e:
+            st.error(f"Erreur lors du traitement OCR ou de l'analyse par l'assistant Mistral : {e}")
