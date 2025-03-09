@@ -38,7 +38,7 @@ client_mistral = Mistral(api_key=MISTRAL_API_KEY)
 tavily_client = TavilyClient(api_key=TAVILY_API_KEY)
 
 ##############################################
-# Configuration de l'assistant (sans passer le paramètre 'functions')
+# Configuration de l'assistant (sans le paramètre 'functions')
 ##############################################
 assistant_prompt_instruction = """
 Vous êtes Chat IA, un assistant expert en analyse de cartes de visite.
@@ -53,6 +53,7 @@ Si une recherche complémentaire est nécessaire, incluez également la clé "ca
 # Fonctions utilitaires
 ##############################################
 def tavily_search(query):
+    # Appel avec backoff pour gérer le rate limit
     search_result = api_call_with_backoff(
         tavily_client.get_search_context,
         query,
@@ -62,6 +63,9 @@ def tavily_search(query):
     return search_result
 
 def extract_text_from_ocr_response(ocr_response):
+    """
+    Parcourt les pages de la réponse OCR et extrait le texte en supprimant les lignes contenant des images (commençant par "![").
+    """
     extracted_text = ""
     if hasattr(ocr_response, "pages"):
         pages = ocr_response.pages
@@ -104,7 +108,7 @@ if image_file is not None:
     st.write("Niveau de discussion choisi :", niveau_discussion)
     st.write("Note saisie :", note_utilisateur)
     
-    # Conversion de l'image en base64 pour l'API OCR
+    # Conversion de l'image en base64 pour l'envoi à l'API OCR
     image_bytes = image_file.getvalue()
     base64_image = base64.b64encode(image_bytes).decode("utf-8")
     image_data_uri = f"data:image/jpeg;base64,{base64_image}"
@@ -136,15 +140,16 @@ if image_file is not None:
                 {"role": "user", "content": f"{contexte_utilisateur}\nVoici le texte OCR extrait :\n{ocr_text}"}
             ]
             
-            # Appel initial à l'assistant (sans paramètre 'functions')
+            # Appel initial à l'assistant
             response = api_call_with_backoff(
                 client_mistral.chat.complete,
                 model="mistral-small-latest",
                 messages=messages
             )
             
+            # Accès à la réponse en mode dictionnaire (comme dans votre code d'origine)
+            response_content = response.get("message", {}).get("content", "")
             try:
-                response_content = response.message.content
                 response_json = json.loads(response_content)
             except Exception as e:
                 st.error(f"Erreur de parsing JSON de la réponse : {e}")
@@ -167,7 +172,7 @@ if image_file is not None:
             else:
                 final_response = response
             
-            final_output = final_response.message.content
+            final_output = final_response.get("message", {}).get("content", "")
             st.subheader("Résultat final de l'assistant :")
             try:
                 parsed_json = json.loads(final_output)
