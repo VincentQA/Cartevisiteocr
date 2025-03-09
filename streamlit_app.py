@@ -3,6 +3,30 @@ import os
 import base64
 from mistralai import Mistral
 
+def extract_text_from_ocr_response(ocr_response):
+    """
+    Extrait le texte exploitable depuis la réponse OCR.
+    Si la réponse possède un attribut 'pages' (liste d'OCRPageObject), on itère dessus.
+    Pour chaque page, on supprime la ligne contenant l'image (commençant par "![") et on conserve le reste.
+    """
+    extracted_text = ""
+    # Si l'objet a un attribut 'pages'
+    if hasattr(ocr_response, "pages"):
+        pages = ocr_response.pages
+    elif isinstance(ocr_response, list):
+        pages = ocr_response
+    else:
+        pages = []
+
+    for page in pages:
+        if hasattr(page, "markdown") and page.markdown:
+            # Découper le markdown en lignes et filtrer celles qui commencent par "!["
+            lines = page.markdown.split("\n")
+            filtered_lines = [line.strip() for line in lines if not line.startswith("![")]
+            if filtered_lines:
+                extracted_text += "\n".join(filtered_lines) + "\n"
+    return extracted_text.strip()
+
 def extract_business_card_data_via_ai(ocr_text, client, model="mistral-small-latest"):
     """
     Envoie le texte OCR à l'agent pour extraire les informations de la carte de visite.
@@ -28,11 +52,11 @@ def extract_business_card_data_via_ai(ocr_text, client, model="mistral-small-lat
     except (AttributeError, IndexError) as e:
         return "Erreur dans la réponse de l'agent : " + str(e)
 
-# Configuration de la page
+# --- Configuration initiale de la page ---
 st.set_page_config(page_title="Le charte visite 🐱", layout="centered")
 st.title("Le charte visite 🐱")
 
-# Capture de l'image via la caméra
+# --- Capture de l'image via la caméra ---
 image_file = st.camera_input("Prenez une photo des cartes de visite")
 
 if image_file is not None:
@@ -50,7 +74,7 @@ if image_file is not None:
     else:
         client = Mistral(api_key=api_key)
         try:
-            # Appel à l'API OCR avec l'image encodée
+            # --- Appel à l'API OCR avec l'image encodée ---
             ocr_response = client.ocr.process(
                 model="mistral-ocr-latest",
                 document={
@@ -58,22 +82,23 @@ if image_file is not None:
                     "image_url": image_data_uri
                 }
             )
-            st.subheader("Résultat de l'OCR :")
+            st.subheader("Résultat brut de l'OCR :")
             st.write(ocr_response)
             
-            # Accès direct à l'attribut text de l'objet OCRResponse
-            ocr_text = ocr_response.text if hasattr(ocr_response, "text") else ""
+            # --- Extraction du texte exploitable depuis la réponse OCR ---
+            ocr_text = extract_text_from_ocr_response(ocr_response)
             if not ocr_text:
-                st.warning("Aucun texte extrait par l'OCR.")
+                st.warning("Aucun texte exploitable extrait par l'OCR.")
             else:
                 st.subheader("Texte OCR extrait :")
                 st.text(ocr_text)
                 
+                # --- Extraction initiale par l'IA ---
                 st.subheader("Extraction initiale par l'IA :")
                 initial_extraction = extract_business_card_data_via_ai(ocr_text, client)
                 st.write(initial_extraction)
                 
-                # Mise en place de l'historique de la conversation dans st.session_state
+                # --- Mise en place de l'historique de la conversation ---
                 if "chat_history" not in st.session_state:
                     st.session_state.chat_history = [
                         {
@@ -99,7 +124,7 @@ if image_file is not None:
                     elif role == "system":
                         st.markdown(f"**Contexte :** {text_content}")
                 
-                # Zone de saisie pour la question de l'utilisateur
+                # --- Zone de saisie pour la question de l'utilisateur ---
                 user_input = st.text_input("Votre question pour l'agent", key="user_input")
                 if st.button("Envoyer") and user_input:
                     st.session_state.chat_history.append({
