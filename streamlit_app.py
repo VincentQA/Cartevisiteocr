@@ -18,31 +18,19 @@ client_mistral = Mistral(api_key=MISTRAL_API_KEY)
 tavily_client = TavilyClient(api_key=TAVILY_API_KEY)
 
 ##############################################
-# Configuration de l'assistant avec function calling
+# Configuration de l'assistant
 ##############################################
 
+# Le prompt est modifié pour demander à l'assistant de renvoyer, en plus des informations extraites, 
+# une clé "call_tavily_search" contenant la requête si une recherche complémentaire est nécessaire.
 assistant_prompt_instruction = """
 Vous êtes Chat IA, un assistant expert en analyse de cartes de visite.
-Votre tâche est la suivante:
+Votre tâche est la suivante :
 1. Extraire le nom, le prénom et le nom de l'entreprise à partir du texte OCR fourni.
-2. Utiliser la fonction tavily_search pour effectuer une recherche en ligne et fournir un maximum d'informations sur l'intervenant et son entreprise.
-Répondez uniquement sous forme d'un objet JSON avec les clés "nom", "prenom", "entreprise" et "infos_en_ligne".
+2. Si des informations complémentaires sont nécessaires, ajoutez dans votre réponse une clé "call_tavily_search" avec la requête à effectuer.
+Répondez uniquement sous forme d'un objet JSON contenant obligatoirement les clés "nom", "prenom", "entreprise" et "infos_en_ligne". 
+Si une recherche complémentaire est nécessaire, incluez également la clé "call_tavily_search" avec la requête correspondante.
 """
-
-tavily_search_function = {
-    "name": "tavily_search",
-    "description": "Recherche en ligne pour obtenir des informations sur une personne ou une entreprise.",
-    "parameters": {
-        "type": "object",
-        "properties": {
-            "query": {
-                "type": "string",
-                "description": "La requête de recherche, par exemple 'John Doe, PDG de Example Corp'."
-            }
-        },
-        "required": ["query"]
-    }
-}
 
 ##############################################
 # Fonctions utilitaires
@@ -55,7 +43,7 @@ def tavily_search(query):
 
 def extract_text_from_ocr_response(ocr_response):
     """
-    Parcourt les pages de la réponse OCR et extrait le texte en supprimant les lignes contenant l'image (commençant par "![").
+    Parcourt les pages de la réponse OCR et extrait le texte en supprimant les lignes contenant des images (commençant par "![").
     """
     extracted_text = ""
     if hasattr(ocr_response, "pages"):
@@ -73,13 +61,13 @@ def extract_text_from_ocr_response(ocr_response):
     return extracted_text.strip()
 
 ##############################################
-# Interface Streamlit (Nouvelle version)
+# Interface Streamlit : Nouvelle Version
 ##############################################
 
 st.set_page_config(page_title="Le charte visite 🐱", layout="centered")
 st.title("Le charte visite 🐱")
 
-# Affichage côte à côte de la capture d'image et des autres inputs
+# Organisation en colonnes pour afficher côte à côte la capture d'image et les autres inputs
 col1, col2 = st.columns(2)
 with col1:
     # Capture de l'image de la carte de visite
@@ -103,7 +91,7 @@ if image_file is not None:
     st.write("Niveau de discussion choisi :", niveau_discussion)
     st.write("Note saisie :", note_utilisateur)
     
-    # Conversion de l'image en base64
+    # Conversion de l'image en base64 pour l'envoi à l'API OCR
     image_bytes = image_file.getvalue()
     base64_image = base64.b64encode(image_bytes).decode("utf-8")
     image_data_uri = f"data:image/jpeg;base64,{base64_image}"
@@ -125,50 +113,48 @@ if image_file is not None:
             st.subheader("Texte OCR extrait :")
             st.text(ocr_text)
             
-            # Ajout du contexte utilisateur (niveau de discussion et note)
+            # Ajout du contexte utilisateur (niveau et note)
             contexte_utilisateur = f"Niveau de discussion : {niveau_discussion}\nNote : {note_utilisateur}"
             
             # Préparation des messages pour l'assistant
             messages = [
                 {"role": "system", "content": assistant_prompt_instruction},
-                {"role": "user", "content": f"{contexte_utilisateur}\nVoici le texte OCR extrait :\n{ocr_text}\nExtrais les informations demandées et, si nécessaire, appelle la fonction tavily_search pour obtenir des infos en ligne."}
+                {"role": "user", "content": f"{contexte_utilisateur}\nVoici le texte OCR extrait :\n{ocr_text}"}
             ]
             
-            # Transmission à l'assistant avec function calling (comme dans votre ancien code)
+            # Appel initial à l'assistant (sans paramètres "functions")
             response = client_mistral.chat.complete(
                 model="mistral-small-latest",
-                messages=messages,
-                functions=[tavily_search_function],
-                function_call="auto"
+                messages=messages
             )
             
-            # Si l'assistant déclenche la fonction tavily_search, on exécute celle-ci
-            if response.get("function_call"):
-                func_call = response["function_call"]
-                if func_call["name"] == "tavily_search":
-                    try:
-                        args = json.loads(func_call["arguments"])
-                        query = args["query"]
-                        search_output = tavily_search(query)
-                        # Ajout de la réponse de la fonction dans le contexte
-                        messages.append({
-                            "role": "tool",
-                            "name": "tavily_search",
-                            "content": search_output
-                        })
-                        # Relance de l'assistant avec le contexte mis à jour
-                        final_response = client_mistral.chat.complete(
-                            model="mistral-small-latest",
-                            messages=messages
-                        )
-                    except Exception as e:
-                        final_response = {"error": str(e)}
-                else:
-                    final_response = response
+            # On tente de parser la réponse de l'assistant en JSON
+            try:
+                response_content = response.get("message", {}).get("content", "")
+                response_json = json.loads(response_content)
+            except Exception as e:
+                st.error(f"Erreur de parsing JSON de la réponse : {e}")
+                response_json = {}
+            
+            # Si l'assistant demande une recherche complémentaire via "call_tavily_search"
+            if "call_tavily_search" in response_json:
+                query = response_json["call_tavily_search"]
+                search_output = tavily_search(query)
+                # Ajout de la réponse de la fonction dans le contexte
+                messages.append({
+                    "role": "tool",
+                    "name": "tavily_search",
+                    "content": search_output
+                })
+                # Relance de l'assistant avec le contexte mis à jour
+                final_response = client_mistral.chat.complete(
+                    model="mistral-small-latest",
+                    messages=messages
+                )
             else:
                 final_response = response
             
-            # Affichage du résultat final
+            # Extraction et affichage du message final
             final_output = final_response.get("message", {}).get("content", "")
             st.subheader("Résultat final de l'assistant :")
             try:
