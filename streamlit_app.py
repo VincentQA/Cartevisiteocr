@@ -7,13 +7,13 @@ from openai import OpenAI
 from mistralai import Mistral
 from tavily import TavilyClient
 
-# Récupération des clés API depuis les variables d'environnement
+# Récupération des clés API
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 MISTRAL_API_KEY = os.getenv("MISTRAL_API_KEY")
 TAVILY_API_KEY = os.getenv("TAVILY_API_KEY")
 
 if not OPENAI_API_KEY or not MISTRAL_API_KEY or not TAVILY_API_KEY:
-    st.error("Vérifiez que OPENAI_API_KEY, MISTRAL_API_KEY et TAVILY_API_KEY sont définies dans vos variables d'environnement.")
+    st.error("Veuillez définir les variables OPENAI_API_KEY, MISTRAL_API_KEY et TAVILY_API_KEY dans votre environnement.")
     st.stop()
 
 # Initialisation des clients
@@ -21,9 +21,9 @@ client_openai = OpenAI(api_key=OPENAI_API_KEY)
 client_mistral = Mistral(api_key=MISTRAL_API_KEY)
 tavily_client = TavilyClient(api_key=TAVILY_API_KEY)
 
-########################################
-# Création de l'assistant avec outils  #
-########################################
+###########################################
+# Création de l'assistant OpenAI avec outil #
+###########################################
 
 assistant_prompt_instruction = """
 Vous êtes Chat IA, un assistant expert en analyse de cartes de visite.
@@ -56,12 +56,12 @@ assistant = client_openai.beta.assistants.create(
 )
 assistant_id = assistant.id
 
-##############################################
-# Fonctions utilitaires pour l'assistant   #
-##############################################
+#####################################################
+# Fonctions utilitaires pour l'assistant et Tavily  #
+#####################################################
 
 def tavily_search(query):
-    # Effectue une recherche avec Tavily
+    # Effectue une recherche en ligne via Tavily
     search_result = tavily_client.get_search_context(query, search_depth="advanced", max_tokens=8000)
     return search_result
 
@@ -92,16 +92,17 @@ def print_messages_from_thread(thread_id):
     messages = client_openai.beta.threads.messages.list(thread_id=thread_id)
     for msg in messages:
         role = msg.role
-        text_val = "".join([c.get("text", "") for c in msg.content])
+        text_val = ""
+        for content_item in msg.content:
+            if isinstance(content_item, dict):
+                text_val += content_item.get("text", "")
+            else:
+                text_val += str(content_item)
         st.write(f"{role}: {text_val}")
-
-##############################################
-# Fonction d'extraction du texte OCR         #
-##############################################
 
 def extract_text_from_ocr_response(ocr_response):
     """
-    Parcourt les pages de la réponse OCR et extrait le texte en supprimant la ligne image.
+    Parcourt les pages de la réponse OCR et extrait le texte en supprimant la ligne contenant l'image.
     """
     extracted_text = ""
     if hasattr(ocr_response, "pages"):
@@ -118,9 +119,9 @@ def extract_text_from_ocr_response(ocr_response):
                 extracted_text += "\n".join(filtered_lines) + "\n"
     return extracted_text.strip()
 
-##############################################
-# Interface Streamlit                        #
-##############################################
+###########################################
+# Interface Streamlit                     #
+###########################################
 
 st.set_page_config(page_title="Le charte visite 🐱", layout="centered")
 st.title("Le charte visite 🐱")
@@ -151,10 +152,10 @@ if image_file is not None:
             st.subheader("Texte OCR extrait :")
             st.text(ocr_text)
             
-            # Création d'un thread pour communiquer avec l'assistant
+            # Création d'un thread pour la conversation avec l'assistant
             thread = client_openai.beta.threads.create()
             
-            # Envoi d'un message incluant le texte OCR et les instructions
+            # Envoi du message utilisateur contenant le texte OCR
             user_message = (
                 f"Voici le texte OCR extrait :\n{ocr_text}\n\n"
                 "Extrais les informations suivantes : nom, prenom, entreprise. "
@@ -166,7 +167,7 @@ if image_file is not None:
                 content=user_message
             )
             
-            # Lancer une exécution (run) pour que l'assistant traite le message
+            # Création d'un run pour que l'assistant traite le message
             run = client_openai.beta.threads.runs.create(
                 thread_id=thread.id,
                 assistant_id=assistant_id
@@ -183,5 +184,3 @@ if image_file is not None:
             
     except Exception as e:
         st.error(f"Erreur lors du traitement OCR ou de l'analyse par l'assistant : {e}")
-
-
