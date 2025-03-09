@@ -87,22 +87,26 @@ def extract_text_from_ocr_response(ocr_response):
 st.set_page_config(page_title="Le charte visite 🐱", layout="centered")
 st.title("Le charte visite 🐱")
 
-# 1. Capture de l'image de la carte de visite
-image_file = st.camera_input("Prenez une photo des cartes de visite")
+# Mise en page en colonnes pour afficher côte à côte la capture d'image et les autres inputs
+col1, col2 = st.columns(2)
 
-# 2. Sélection du niveau de discussion
-niveau_discussion = st.selectbox(
-    "Sélectionnez le niveau de discussion :",
-    options=[
-        "Smart Talk à creuser",
-        "Incubation collective",
-        "Incubation individuelle",
-        "Renvoyer vers transformation numérique"
-    ]
-)
+with col1:
+    # 1. Capture de l'image de la carte de visite
+    image_file = st.camera_input("Prenez une photo des cartes de visite")
 
-# 3. Saisie d'une note complémentaire
-note_utilisateur = st.text_area("Ajoutez une note (facultatif) :", placeholder="Saisissez ici votre note...")
+with col2:
+    # 2. Sélection du niveau de discussion
+    niveau_discussion = st.selectbox(
+        "Sélectionnez le niveau de discussion :",
+        options=[
+            "Smart Talk à creuser",
+            "Incubation collective",
+            "Incubation individuelle",
+            "Renvoyer vers transformation numérique"
+        ]
+    )
+    # 3. Saisie d'une note complémentaire
+    note_utilisateur = st.text_area("Ajoutez une note (facultatif) :", placeholder="Saisissez ici votre note...")
 
 # Affichage des données saisies pour vérification
 if image_file is not None:
