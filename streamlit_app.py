@@ -2,7 +2,6 @@ import streamlit as st
 import os
 import base64
 import json
-import time
 from mistralai import Mistral
 from tavily import TavilyClient
 
@@ -80,13 +79,11 @@ def extract_text_from_ocr_response(ocr_response):
 st.set_page_config(page_title="Le charte visite 🐱", layout="centered")
 st.title("Le charte visite 🐱")
 
-# Mise en page en colonnes pour afficher côte à côte la capture d'image et les autres inputs
+# Disposition en colonnes pour afficher côte à côte la capture d'image et les autres inputs
 col1, col2 = st.columns(2)
-
 with col1:
     # 1. Capture de l'image de la carte de visite
     image_file = st.camera_input("Prenez une photo des cartes de visite")
-
 with col2:
     # 2. Sélection du niveau de discussion
     niveau_discussion = st.selectbox(
@@ -139,8 +136,8 @@ if image_file is not None:
                 {"role": "user", "content": f"Voici le texte OCR extrait :\n{ocr_text}\nExtrais les informations demandées et, si nécessaire, appelle la fonction tavily_search pour obtenir des infos en ligne."}
             ]
             
-            # Appel à l'agent via l'endpoint agents.completions pour activer le function calling
-            response = client_mistral.agents.completions(
+            # Appel à l'agent via l'endpoint agents.run() pour activer le function calling
+            response = client_mistral.agents.run(
                 model="mistral-small-latest",
                 messages=messages,
                 functions=[tavily_search_function],
@@ -162,7 +159,7 @@ if image_file is not None:
                             "content": search_output
                         })
                         # Relance de l'agent avec le contexte mis à jour
-                        final_response = client_mistral.agents.completions(
+                        final_response = client_mistral.agents.run(
                             model="mistral-small-latest",
                             messages=messages
                         )
@@ -185,4 +182,5 @@ if image_file is not None:
                 
     except Exception as e:
         st.error(f"Erreur lors du traitement OCR ou de l'analyse par l'agent Mistral : {e}")
+
 
