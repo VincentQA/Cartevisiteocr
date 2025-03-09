@@ -19,7 +19,7 @@ client_mistral = Mistral(api_key=MISTRAL_API_KEY)
 tavily_client = TavilyClient(api_key=TAVILY_API_KEY)
 
 ##############################################
-# Configuration de l'assistant Mistral avec fonction calling
+# Configuration de l'agent Mistral pour la recherche en ligne
 ##############################################
 
 assistant_prompt_instruction = """
@@ -30,7 +30,6 @@ Votre tâche est la suivante:
 Répondez uniquement sous forme d'un objet JSON avec les clés "nom", "prenom", "entreprise" et "infos_en_ligne".
 """
 
-# Définition de la fonction tavily_search pour le function calling
 tavily_search_function = {
     "name": "tavily_search",
     "description": "Recherche en ligne pour obtenir des informations sur une personne ou une entreprise.",
@@ -82,17 +81,40 @@ def extract_text_from_ocr_response(ocr_response):
     return extracted_text.strip()
 
 ##############################################
-# Interface Streamlit
+# Interface Streamlit : Etape 1 - Entrée utilisateur
 ##############################################
 
 st.set_page_config(page_title="Le charte visite 🐱", layout="centered")
 st.title("Le charte visite 🐱")
 
-# Capture de l'image via la caméra
+# 1. Capture de l'image de la carte de visite
 image_file = st.camera_input("Prenez une photo des cartes de visite")
 
+# 2. Sélection du niveau de discussion
+niveau_discussion = st.selectbox(
+    "Sélectionnez le niveau de discussion :",
+    options=[
+        "Smart Talk à creuser",
+        "Incubation collective",
+        "Incubation individuelle",
+        "Renvoyer vers transformation numérique"
+    ]
+)
+
+# 3. Saisie d'une note complémentaire
+note_utilisateur = st.text_area("Ajoutez une note (facultatif) :", placeholder="Saisissez ici votre note...")
+
+# Affichage des données saisies pour vérification
 if image_file is not None:
     st.image(image_file, caption="Carte de visite capturée", use_column_width=True)
+    st.write("Niveau de discussion choisi :", niveau_discussion)
+    st.write("Note saisie :", note_utilisateur)
+    
+    ##############################################
+    # Etape 2 - Analyse de l'OCR et recherche en ligne
+    ##############################################
+    
+    # Conversion de l'image en base64
     image_bytes = image_file.getvalue()
     base64_image = base64.b64encode(image_bytes).decode("utf-8")
     image_data_uri = f"data:image/jpeg;base64,{base64_image}"
@@ -114,10 +136,10 @@ if image_file is not None:
             st.subheader("Texte OCR extrait :")
             st.text(ocr_text)
             
-            # Préparation des messages pour l'agent Mistral
+            # Préparation des messages pour l'agent Mistral (étape 2)
             messages = [
                 {"role": "system", "content": assistant_prompt_instruction},
-                {"role": "user", "content": f"Voici le texte OCR extrait :\n{ocr_text}\nExtrais les informations demandées et, si nécessaire, appelez la fonction tavily_search pour obtenir des infos en ligne."}
+                {"role": "user", "content": f"Voici le texte OCR extrait :\n{ocr_text}\nExtrais les informations demandées et, si nécessaire, appelle la fonction tavily_search pour obtenir des infos en ligne."}
             ]
             
             # Appel initial à l'agent Mistral avec function calling
@@ -128,7 +150,7 @@ if image_file is not None:
                 function_call="auto"
             )
             
-            # Si l'agent a appelé la fonction tavily_search, on récupère l'appel et on l'exécute
+            # Si l'agent appelle la fonction tavily_search, on l'exécute
             if response.get("function_call"):
                 func_call = response["function_call"]
                 if func_call["name"] == "tavily_search":
@@ -156,7 +178,7 @@ if image_file is not None:
             
             # Extraction et affichage du message final
             final_output = final_response.get("message", {}).get("content", "")
-            st.subheader("Résultat final de l'assistant :")
+            st.subheader("Résultat final de l'agent de recherche en ligne :")
             try:
                 parsed_json = json.loads(final_output)
                 st.json(parsed_json)
