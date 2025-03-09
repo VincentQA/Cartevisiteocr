@@ -74,6 +74,23 @@ product_assistant = client_openai.beta.assistants.create(
 )
 product_assistant_id = product_assistant.id
 
+###########################################
+# Assistant 3 : Rédaction du mail          #
+###########################################
+
+email_assistant_instruction = """
+Vous êtes Chat IA, un expert en rédaction de mails de relance.
+Votre tâche est de rédiger le meilleur mail de relance possible afin de convertir ce lead.
+Pour ce faire, tenez compte des informations extraites par le premier assistant sur l'intervenant et son entreprise, 
+de la description de notre offre produite par le second assistant, ainsi que de la qualification du lead et des notes de l'utilisateur.
+Répondez sous forme d'un texte structuré comprenant une salutation, une introduction, le corps du mail et une conclusion.
+"""
+email_assistant = client_openai.beta.assistants.create(
+    instructions=email_assistant_instruction,
+    model="gpt-4o"
+)
+email_assistant_id = email_assistant.id
+
 #####################################################
 # Fonctions utilitaires pour assistants & Tavily     #
 #####################################################
@@ -195,14 +212,11 @@ if image_file is not None:
             st.subheader("Texte OCR extrait :")
             st.text(ocr_text)
             
-            ##########################################
-            # Appel du premier assistant (extraction)#
-            ##########################################
+            ##################################################
+            # Appel du premier assistant (extraction & recherche)
+            ##################################################
             
-            # Création d'un thread pour la conversation avec le premier assistant
             thread = client_openai.beta.threads.create()
-            
-            # Envoi du message utilisateur incluant la qualification et la note
             user_message = (
                 f"Qualification: {qualification}\n"
                 f"Note: {note}\n\n"
@@ -216,7 +230,6 @@ if image_file is not None:
                 content=user_message
             )
             
-            # Création d'un run pour que l'assistant traite le message
             run = client_openai.beta.threads.runs.create(
                 thread_id=thread.id,
                 assistant_id=assistant_id
@@ -234,14 +247,11 @@ if image_file is not None:
             # Récupération du message final du premier assistant
             entreprise_infos = get_final_assistant_message(thread.id)
             
-            ###############################################
-            # Appel du second assistant (description produit) #
-            ###############################################
+            ##################################################
+            # Appel du second assistant (description des produits)
+            ##################################################
             
-            # Création d'un nouveau thread pour le second assistant
             product_thread = client_openai.beta.threads.create()
-            
-            # Message utilisateur pour l'assistant produit
             user_message_product = (
                 f"Voici les informations sur l'entreprise extraites précédemment :\n{entreprise_infos}\n\n"
                 f"Qualification: {qualification}\n"
@@ -255,7 +265,6 @@ if image_file is not None:
                 content=user_message_product
             )
             
-            # Création d'un run pour que l'assistant produit traite le message
             run_product = client_openai.beta.threads.runs.create(
                 thread_id=product_thread.id,
                 assistant_id=product_assistant_id
@@ -269,6 +278,42 @@ if image_file is not None:
             
             st.subheader("Description des produits par le second assistant :")
             print_messages_from_thread(product_thread.id)
+            
+            # Récupération du message final du second assistant
+            product_description = get_final_assistant_message(product_thread.id)
+            
+            ##################################################
+            # Appel du troisième assistant (rédaction du mail)
+            ##################################################
+            
+            email_thread = client_openai.beta.threads.create()
+            user_message_email = (
+                f"Informations de l'intervenant et de son entreprise (premier assistant) :\n{entreprise_infos}\n\n"
+                f"Description de notre offre (second assistant) :\n{product_description}\n\n"
+                f"Qualification du lead: {qualification}\n"
+                f"Note de l'utilisateur: {note}\n\n"
+                "En vous basant sur ces informations, rédigez le meilleur mail de relance possible pour convertir ce lead. "
+                "Incluez une salutation, une introduction, le corps du mail et une conclusion."
+            )
+            client_openai.beta.threads.messages.create(
+                thread_id=email_thread.id,
+                role="user",
+                content=user_message_email
+            )
+            
+            run_email = client_openai.beta.threads.runs.create(
+                thread_id=email_thread.id,
+                assistant_id=email_assistant_id
+            )
+            run_email = wait_for_run_completion(email_thread.id, run_email.id)
+            if run_email.status == 'failed':
+                st.error(run_email.error)
+            elif run_email.status == 'requires_action':
+                run_email = submit_tool_outputs(email_thread.id, run_email.id, run_email.required_action.submit_tool_outputs.tool_calls)
+                run_email = wait_for_run_completion(email_thread.id, run_email.id)
+            
+            st.subheader("Mail de relance généré par le troisième assistant :")
+            print_messages_from_thread(email_thread.id)
             
     except Exception as e:
         st.error(f"Erreur lors du traitement OCR ou de l'analyse par les assistants : {e}")
