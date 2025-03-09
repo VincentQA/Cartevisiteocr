@@ -1,4 +1,4 @@
 streamlit
-mistralai
 openai
-tavily
+mistralai
+tavily-python
