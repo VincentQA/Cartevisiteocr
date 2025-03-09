@@ -18,7 +18,7 @@ client_mistral = Mistral(api_key=MISTRAL_API_KEY)
 tavily_client = TavilyClient(api_key=TAVILY_API_KEY)
 
 ##############################################
-# Configuration de l'agent Mistral pour la recherche en ligne
+# Configuration de l'agent pour la recherche en ligne
 ##############################################
 
 assistant_prompt_instruction = """
@@ -130,24 +130,27 @@ if image_file is not None:
             st.subheader("Texte OCR extrait :")
             st.text(ocr_text)
             
-            # Préparation des messages pour l'agent Mistral (étape 2)
+            # Préparation des messages pour l'agent
             messages = [
                 {"role": "system", "content": assistant_prompt_instruction},
                 {"role": "user", "content": f"Voici le texte OCR extrait :\n{ocr_text}\nExtrais les informations demandées et, si nécessaire, appelle la fonction tavily_search pour obtenir des infos en ligne."}
             ]
             
-            # Appel à l'agent via l'endpoint agents.run() pour activer le function calling
-            response = client_mistral.agents.run(
-                model="mistral-small-latest",
-                messages=messages,
-                functions=[tavily_search_function],
-                function_call="auto"
-            )
+            # Préparation du payload pour l'endpoint agents/completions
+            payload = {
+                "model": "mistral-small-latest",
+                "messages": messages,
+                "functions": [tavily_search_function],
+                "function_call": "auto"
+            }
+            
+            # Appel à l'endpoint agents/completions directement via le client
+            response = client_mistral.request("POST", "/v1/agents/completions", json=payload)
             
             # Si l'agent appelle la fonction tavily_search, on l'exécute
             if response.get("function_call"):
                 func_call = response["function_call"]
-                if func_call["name"] == "tavily_search":
+                if func_call.get("name") == "tavily_search":
                     try:
                         args = json.loads(func_call["arguments"])
                         query = args["query"]
@@ -158,11 +161,13 @@ if image_file is not None:
                             "name": "tavily_search",
                             "content": search_output
                         })
+                        # Préparation du payload mis à jour
+                        payload = {
+                            "model": "mistral-small-latest",
+                            "messages": messages
+                        }
                         # Relance de l'agent avec le contexte mis à jour
-                        final_response = client_mistral.agents.run(
-                            model="mistral-small-latest",
-                            messages=messages
-                        )
+                        final_response = client_mistral.request("POST", "/v1/agents/completions", json=payload)
                     except Exception as e:
                         final_response = {"error": str(e)}
                 else:
@@ -182,5 +187,3 @@ if image_file is not None:
                 
     except Exception as e:
         st.error(f"Erreur lors du traitement OCR ou de l'analyse par l'agent Mistral : {e}")
-
-
