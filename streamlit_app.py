@@ -15,7 +15,6 @@ def api_call_with_backoff(api_func, *args, max_attempts=5, initial_delay=1, **kw
         try:
             return api_func(*args, **kwargs)
         except Exception as e:
-            # Vérifier si l'erreur concerne le rate limit (429)
             if "429" in str(e) or "rate limit" in str(e).lower():
                 st.warning(f"Rate limit atteint, nouvelle tentative dans {delay} secondes...")
                 time.sleep(delay)
@@ -25,9 +24,8 @@ def api_call_with_backoff(api_func, *args, max_attempts=5, initial_delay=1, **kw
     raise Exception("Nombre maximal de tentatives dépassé à cause du rate limiting.")
 
 ##############################################
-# Récupération des clés API et initialisation
+# Récupération des clés API et initialisation des clients
 ##############################################
-
 MISTRAL_API_KEY = os.getenv("MISTRAL_API_KEY")
 TAVILY_API_KEY = os.getenv("TAVILY_API_KEY")
 
@@ -39,9 +37,8 @@ client_mistral = Mistral(api_key=MISTRAL_API_KEY)
 tavily_client = TavilyClient(api_key=TAVILY_API_KEY)
 
 ##############################################
-# Configuration de l'assistant (simulé function calling)
+# Configuration de l'assistant
 ##############################################
-
 assistant_prompt_instruction = """
 Vous êtes Chat IA, un assistant expert en analyse de cartes de visite.
 Votre tâche est la suivante :
@@ -54,9 +51,8 @@ Si une recherche complémentaire est nécessaire, incluez également la clé "ca
 ##############################################
 # Fonctions utilitaires
 ##############################################
-
 def tavily_search(query):
-    # Appel via backoff pour gérer les éventuels problèmes de rate limiting
+    # Appel via backoff pour gérer les erreurs de rate limiting
     search_result = api_call_with_backoff(
         tavily_client.get_search_context,
         query,
@@ -66,6 +62,9 @@ def tavily_search(query):
     return search_result
 
 def extract_text_from_ocr_response(ocr_response):
+    """
+    Parcourt les pages de la réponse OCR et extrait le texte en supprimant les lignes contenant des images (commençant par "![").
+    """
     extracted_text = ""
     if hasattr(ocr_response, "pages"):
         pages = ocr_response.pages
@@ -84,7 +83,6 @@ def extract_text_from_ocr_response(ocr_response):
 ##############################################
 # Interface Streamlit – Nouvelle Version
 ##############################################
-
 st.set_page_config(page_title="Le charte visite 🐱", layout="centered")
 st.title("Le charte visite 🐱")
 
@@ -109,7 +107,7 @@ if image_file is not None:
     st.write("Niveau de discussion choisi :", niveau_discussion)
     st.write("Note saisie :", note_utilisateur)
     
-    # Conversion de l'image en base64 pour l'API OCR
+    # Conversion de l'image en base64 pour l'envoi à l'API OCR
     image_bytes = image_file.getvalue()
     base64_image = base64.b64encode(image_bytes).decode("utf-8")
     image_data_uri = f"data:image/jpeg;base64,{base64_image}"
@@ -132,7 +130,7 @@ if image_file is not None:
             st.subheader("Texte OCR extrait :")
             st.text(ocr_text)
             
-            # Contexte utilisateur à ajouter
+            # Ajout du contexte utilisateur (niveau et note)
             contexte_utilisateur = f"Niveau de discussion : {niveau_discussion}\nNote : {note_utilisateur}"
             
             # Préparation des messages pour l'assistant
@@ -148,14 +146,15 @@ if image_file is not None:
                 messages=messages
             )
             
+            # Accès via attributs à la réponse de l'assistant
             try:
-                response_content = response.get("message", {}).get("content", "")
+                response_content = response.message.content
                 response_json = json.loads(response_content)
             except Exception as e:
                 st.error(f"Erreur de parsing JSON de la réponse : {e}")
                 response_json = {}
             
-            # Si l'assistant demande une recherche complémentaire
+            # Si l'assistant demande une recherche complémentaire via "call_tavily_search"
             if "call_tavily_search" in response_json:
                 query = response_json["call_tavily_search"]
                 search_output = tavily_search(query)
@@ -164,7 +163,7 @@ if image_file is not None:
                     "name": "tavily_search",
                     "content": search_output
                 })
-                # Relance de l'assistant avec contexte mis à jour
+                # Relance de l'assistant avec le contexte mis à jour
                 final_response = api_call_with_backoff(
                     client_mistral.chat.complete,
                     model="mistral-small-latest",
@@ -173,7 +172,8 @@ if image_file is not None:
             else:
                 final_response = response
             
-            final_output = final_response.get("message", {}).get("content", "")
+            # Extraction et affichage du résultat final
+            final_output = final_response.message.content
             st.subheader("Résultat final de l'assistant :")
             try:
                 parsed_json = json.loads(final_output)
