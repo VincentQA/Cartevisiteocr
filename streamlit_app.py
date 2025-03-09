@@ -19,7 +19,7 @@ client_mistral = Mistral(api_key=MISTRAL_API_KEY)
 tavily_client = TavilyClient(api_key=TAVILY_API_KEY)
 
 ##############################################
-# Configuration de l'assistant Mistral avec function calling
+# Configuration de l'assistant Mistral avec fonction calling
 ##############################################
 
 assistant_prompt_instruction = """
@@ -30,6 +30,7 @@ Votre tâche est la suivante:
 Répondez uniquement sous forme d'un objet JSON avec les clés "nom", "prenom", "entreprise" et "infos_en_ligne".
 """
 
+# Définition de la fonction tavily_search pour le function calling
 tavily_search_function = {
     "name": "tavily_search",
     "description": "Recherche en ligne pour obtenir des informations sur une personne ou une entreprise.",
@@ -45,20 +46,14 @@ tavily_search_function = {
     }
 }
 
-assistant = client_mistral.chat.assistants.create(
-    instructions=assistant_prompt_instruction,
-    model="mistral-small-latest",
-    functions=[tavily_search_function]
-)
-assistant_id = assistant.id
-
 ##############################################
 # Fonctions utilitaires
 ##############################################
 
 def tavily_search(query):
     # Effectue une recherche en ligne via Tavily
-    return tavily_client.get_search_context(query, search_depth="advanced", max_tokens=8000)
+    search_result = tavily_client.get_search_context(query, search_depth="advanced", max_tokens=8000)
+    return search_result
 
 def wait_for_run_completion(thread_id, run_id):
     while True:
@@ -67,40 +62,9 @@ def wait_for_run_completion(thread_id, run_id):
         if run.status in ['completed', 'failed', 'requires_action']:
             return run
 
-def submit_tool_outputs(thread_id, run_id, tools_to_call):
-    tool_output_array = []
-    for tool in tools_to_call:
-        tool_call_id = tool.id
-        function_name = tool.function.name
-        function_args = tool.function.arguments
-        if function_name == "tavily_search":
-            query = json.loads(function_args)["query"]
-            output = tavily_search(query)
-            tool_output_array.append({"tool_call_id": tool_call_id, "output": output})
-    return client_mistral.chat.runs.submit_tool_outputs(
-        thread_id=thread_id,
-        run_id=run_id,
-        tool_outputs=tool_output_array
-    )
-
-def get_final_assistant_message(thread_id):
-    # Récupère le dernier message de l'assistant dans le thread
-    messages = client_mistral.chat.messages.list(thread_id=thread_id)
-    assistant_messages = [msg for msg in messages if msg.role == "assistant"]
-    if assistant_messages:
-        final_msg = assistant_messages[-1]
-        text_val = ""
-        for content_item in final_msg.content:
-            if isinstance(content_item, dict):
-                text_val += content_item.get("text", "")
-            else:
-                text_val += str(content_item)
-        return text_val.strip()
-    return None
-
 def extract_text_from_ocr_response(ocr_response):
     """
-    Parcourt les pages de la réponse OCR et extrait le texte en supprimant les lignes contenant l'image.
+    Parcourt les pages de la réponse OCR et extrait le texte en supprimant les lignes contenant l'image (commençant par "![").
     """
     extracted_text = ""
     if hasattr(ocr_response, "pages"):
@@ -116,20 +80,6 @@ def extract_text_from_ocr_response(ocr_response):
             if filtered_lines:
                 extracted_text += "\n".join(filtered_lines) + "\n"
     return extracted_text.strip()
-
-def format_assistant_output(raw_output):
-    """
-    Nettoie la sortie brute de l'assistant.
-    Si elle commence par "json\n", retire ce préfixe et tente de parser le JSON.
-    """
-    prefix = "json\n"
-    cleaned = raw_output.strip()
-    if cleaned.lower().startswith(prefix):
-        cleaned = cleaned[len(prefix):].strip()
-    try:
-        return json.loads(cleaned)
-    except Exception as e:
-        return None
 
 ##############################################
 # Interface Streamlit
@@ -164,45 +114,56 @@ if image_file is not None:
             st.subheader("Texte OCR extrait :")
             st.text(ocr_text)
             
-            # Création d'un thread pour la conversation avec l'assistant Mistral
-            thread = client_mistral.chat.threads.create()
+            # Préparation des messages pour l'agent Mistral
+            messages = [
+                {"role": "system", "content": assistant_prompt_instruction},
+                {"role": "user", "content": f"Voici le texte OCR extrait :\n{ocr_text}\nExtrais les informations demandées et, si nécessaire, appelez la fonction tavily_search pour obtenir des infos en ligne."}
+            ]
             
-            # Envoi du message utilisateur contenant le texte OCR et les instructions
-            user_message = (
-                f"Voici le texte OCR extrait :\n{ocr_text}\n\n"
-                "Extrais les informations suivantes : nom, prenom, entreprise. "
-                "Ensuite, effectue une recherche en ligne pour obtenir un maximum d'informations sur l'intervenant et son entreprise."
-            )
-            client_mistral.chat.messages.create(
-                thread_id=thread.id,
-                role="user",
-                content=user_message
+            # Appel initial à l'agent Mistral avec function calling
+            response = client_mistral.chat.complete(
+                model="mistral-small-latest",
+                messages=messages,
+                functions=[tavily_search_function],
+                function_call="auto"
             )
             
-            # Création d'un run pour que l'assistant traite le message
-            run = client_mistral.chat.runs.create(
-                thread_id=thread.id,
-                assistant_id=assistant_id
-            )
-            run = wait_for_run_completion(thread.id, run.id)
-            if run.status == 'failed':
-                st.error(run.error)
-            elif run.status == 'requires_action':
-                run = submit_tool_outputs(thread.id, run.id, run.required_action.submit_tool_outputs.tool_calls)
-                run = wait_for_run_completion(thread.id, run.id)
-            
-            # Récupération du résultat final de l'assistant
-            raw_output = get_final_assistant_message(thread.id)
-            st.subheader("Résultat final de l'assistant :")
-            if raw_output:
-                parsed_output = format_assistant_output(raw_output)
-                if parsed_output:
-                    st.json(parsed_output)
+            # Si l'agent a appelé la fonction tavily_search, on récupère l'appel et on l'exécute
+            if response.get("function_call"):
+                func_call = response["function_call"]
+                if func_call["name"] == "tavily_search":
+                    try:
+                        args = json.loads(func_call["arguments"])
+                        query = args["query"]
+                        search_output = tavily_search(query)
+                        # Ajout de la réponse de l'outil dans la conversation
+                        messages.append({
+                            "role": "tool",
+                            "name": "tavily_search",
+                            "content": search_output
+                        })
+                        # Relance de l'agent avec le contexte mis à jour
+                        final_response = client_mistral.chat.complete(
+                            model="mistral-small-latest",
+                            messages=messages
+                        )
+                    except Exception as e:
+                        final_response = {"error": str(e)}
                 else:
-                    st.text("Erreur lors du parsing JSON, voici le résultat brut :")
-                    st.text(raw_output)
+                    final_response = response
             else:
-                st.warning("Aucun message de l'assistant n'a été trouvé.")
+                final_response = response
             
+            # Extraction et affichage du message final
+            final_output = final_response.get("message", {}).get("content", "")
+            st.subheader("Résultat final de l'assistant :")
+            try:
+                parsed_json = json.loads(final_output)
+                st.json(parsed_json)
+            except Exception as e:
+                st.text("Erreur lors du parsing JSON, voici le résultat brut :")
+                st.text(final_output)
+                
     except Exception as e:
         st.error(f"Erreur lors du traitement OCR ou de l'analyse par l'assistant Mistral : {e}")
+
