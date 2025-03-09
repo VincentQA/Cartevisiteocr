@@ -30,12 +30,14 @@ Vous êtes Chat IA, un assistant expert en analyse de cartes de visite.
 Votre tâche est la suivante :
 1. Extraire le nom, le prénom et le nom de l'entreprise à partir du texte OCR fourni.
 2. Utiliser la fonction tavily_search pour effectuer une recherche en ligne et fournir un maximum d'informations sur l'intervenant ainsi que son entreprise.
-Répondez uniquement sous forme d'un objet JSON avec les clés "nom", "prenom", "entreprise" et "infos_en_ligne".
+L'objectif est de données des informations clés sur l'intervenant et sa structure afin de faciliter la prise de contact.
+Tu cherches donc des information sur l'entreprise mais tu regardes également les derniers posts sur les réseaux sociaux
+Répondez uniquement sous forme de texte avec des catégories pour chaque partie .
 """
 
 assistant = client_openai.beta.assistants.create(
     instructions=assistant_prompt_instruction,
-    model="gpt-4-1106-preview",
+    model="gpt-4o",
     tools=[{
         "type": "function",
         "function": {
