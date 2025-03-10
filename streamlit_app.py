@@ -184,36 +184,40 @@ def extract_text_from_ocr_response(ocr_response):
 st.set_page_config(page_title="Le charte visite 🐱", layout="centered")
 st.title("Le charte visite 🐱")
 
-# Choix de la méthode de capture
-capture_option = st.radio(
-    "Choisissez la méthode de capture de l'image :",
-    ("Capture via caméra", "Uploader une photo")
-)
+# Affichage de la zone de capture via caméra
+st.subheader("Capture de la carte de visite")
+image_file = st.camera_input("Prenez une photo des cartes de visite")
 
-# En fonction de l'option, on récupère l'image
-image_data_uri = None
+# Espace / Séparation avec possibilité d'upload
+st.markdown("<hr>", unsafe_allow_html=True)
+st.markdown("<h4 style='text-align:center;'>OU</h4>", unsafe_allow_html=True)
+uploaded_file = st.file_uploader("Uploader la carte", type=["jpg", "jpeg", "png"])
 
-if capture_option == "Capture via caméra":
-    image_file = st.camera_input("Prenez une photo des cartes de visite")
-    if image_file is not None:
-        st.image(image_file, caption="Carte de visite capturée", use_column_width=True)
-        image_bytes = image_file.getvalue()
-        base64_image = base64.b64encode(image_bytes).decode("utf-8")
-        image_data_uri = f"data:image/jpeg;base64,{base64_image}"
-elif capture_option == "Uploader une photo":
-    uploaded_file = st.file_uploader("Uploader une photo de carte de visite", type=["jpg", "jpeg", "png"])
-    if uploaded_file is not None:
-        st.image(uploaded_file, caption="Photo uploadée", use_column_width=True)
-        image_bytes = uploaded_file.getvalue()
-        base64_image = base64.b64encode(image_bytes).decode("utf-8")
-        image_data_uri = f"data:image/jpeg;base64,{base64_image}"
-
-# Saisie de la qualification et d'une note
+# Forcer l'utilisateur à choisir la qualification et saisir une note
 qualification = st.selectbox(
     "Qualification du lead",
     ["Smart Talk", "Incubation collective", "Incubation individuelle", "Transformation numérique"]
 )
 note = st.text_area("Ajouter une note", placeholder="Entrez votre note ici...")
+
+if note.strip() == "":
+    st.error("Veuillez saisir une note avant de continuer.")
+    st.stop()
+
+# Récupération de l'image : soit via la caméra, soit via l'upload
+image_data_uri = None
+if image_file is not None:
+    st.image(image_file, caption="Carte de visite capturée", use_column_width=True)
+    image_bytes = image_file.getvalue()
+    base64_image = base64.b64encode(image_bytes).decode("utf-8")
+    image_data_uri = f"data:image/jpeg;base64,{base64_image}"
+elif uploaded_file is not None:
+    st.image(uploaded_file, caption="Carte uploadée", use_column_width=True)
+    image_bytes = uploaded_file.getvalue()
+    base64_image = base64.b64encode(image_bytes).decode("utf-8")
+    image_data_uri = f"data:image/jpeg;base64,{base64_image}"
+else:
+    st.info("Veuillez capturer ou uploader une photo de la carte.")
 
 if image_data_uri is not None:
     try:
