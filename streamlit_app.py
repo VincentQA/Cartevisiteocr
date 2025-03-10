@@ -184,22 +184,38 @@ def extract_text_from_ocr_response(ocr_response):
 st.set_page_config(page_title="Le charte visite 🐱", layout="centered")
 st.title("Le charte visite 🐱")
 
-# Capture de l'image via la caméra
-image_file = st.camera_input("Prenez une photo des cartes de visite")
+# Choix de la méthode de capture
+capture_option = st.radio(
+    "Choisissez la méthode de capture de l'image :",
+    ("Capture via caméra", "Uploader une photo")
+)
 
-# Sélection de la qualification et saisie d'une note
+# En fonction de l'option, on récupère l'image
+image_data_uri = None
+
+if capture_option == "Capture via caméra":
+    image_file = st.camera_input("Prenez une photo des cartes de visite")
+    if image_file is not None:
+        st.image(image_file, caption="Carte de visite capturée", use_column_width=True)
+        image_bytes = image_file.getvalue()
+        base64_image = base64.b64encode(image_bytes).decode("utf-8")
+        image_data_uri = f"data:image/jpeg;base64,{base64_image}"
+elif capture_option == "Uploader une photo":
+    uploaded_file = st.file_uploader("Uploader une photo de carte de visite", type=["jpg", "jpeg", "png"])
+    if uploaded_file is not None:
+        st.image(uploaded_file, caption="Photo uploadée", use_column_width=True)
+        image_bytes = uploaded_file.getvalue()
+        base64_image = base64.b64encode(image_bytes).decode("utf-8")
+        image_data_uri = f"data:image/jpeg;base64,{base64_image}"
+
+# Saisie de la qualification et d'une note
 qualification = st.selectbox(
     "Qualification du lead",
     ["Smart Talk", "Incubation collective", "Incubation individuelle", "Transformation numérique"]
 )
 note = st.text_area("Ajouter une note", placeholder="Entrez votre note ici...")
 
-if image_file is not None:
-    st.image(image_file, caption="Carte de visite capturée", use_column_width=True)
-    image_bytes = image_file.getvalue()
-    base64_image = base64.b64encode(image_bytes).decode("utf-8")
-    image_data_uri = f"data:image/jpeg;base64,{base64_image}"
-    
+if image_data_uri is not None:
     try:
         # Appel à l'API OCR de Mistral et affichage du texte extrait
         ocr_response = client_mistral.ocr.process(
