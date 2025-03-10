@@ -231,7 +231,7 @@ uploaded_file = st.file_uploader("Uploader la carte", type=["jpg", "jpeg", "png"
 # Forcer l'utilisateur à choisir la qualification et saisir une note
 qualification = st.selectbox(
     "Qualification du lead",
-    ["Smart Talk", "Incubation collective", "Incubation individuelle", "Transformation numérique"]
+    ["Smart Talk", "Mise en avant des formations", "Mise en avant des audits", "Mise en avant des modules IA"]
 )
 note = st.text_area("Ajouter une note", placeholder="Entrez votre note ici...")
 
