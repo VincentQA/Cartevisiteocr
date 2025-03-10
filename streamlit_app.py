@@ -28,16 +28,16 @@ tavily_client = TavilyClient(api_key=TAVILY_API_KEY)
 
 def clean_response(response):
     """
-    Extrait le texte contenu dans un éventuel TextContentBlock et retire tout tag HTML.
+    Extrait le texte contenu dans un éventuel TextContentBlock, supprime tout tag HTML
+    et remplace les séquences '\\n' par des retours à la ligne réels.
     """
-    # Si la réponse contient le pattern 'value="...")', on en extrait le contenu.
     match = re.search(r'value="(.*?)"\)', response, re.DOTALL)
     if match:
         cleaned = match.group(1)
     else:
         cleaned = response
-    # Suppression de tout tag HTML éventuel
     cleaned = re.sub(r'<[^>]+>', '', cleaned)
+    cleaned = cleaned.replace("\\n", "\n")
     return cleaned.strip()
 
 ###########################################
@@ -211,7 +211,7 @@ if image_file is not None:
             st.warning("Aucun texte exploitable n'a été extrait.")
         else:
             st.subheader("Texte OCR extrait :")
-            st.text(ocr_text)  # Affichage brut du texte OCR
+            st.text(ocr_text)
 
             ##################################################
             # Assistant 1 : Extraction & recherche           #
