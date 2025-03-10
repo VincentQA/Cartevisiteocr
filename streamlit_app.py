@@ -3,6 +3,7 @@ import os
 import base64
 import json
 import time
+import re
 from openai import OpenAI
 from mistralai import Mistral
 from tavily import TavilyClient
@@ -20,6 +21,24 @@ if not OPENAI_API_KEY or not MISTRAL_API_KEY or not TAVILY_API_KEY:
 client_openai = OpenAI(api_key=OPENAI_API_KEY)
 client_mistral = Mistral(api_key=MISTRAL_API_KEY)
 tavily_client = TavilyClient(api_key=TAVILY_API_KEY)
+
+###########################################
+# Fonction de nettoyage des réponses      #
+###########################################
+
+def clean_response(response):
+    """
+    Extrait le texte contenu dans un éventuel TextContentBlock et retire tout tag HTML.
+    """
+    # Si la réponse contient le pattern 'value="...")', on en extrait le contenu.
+    match = re.search(r'value="(.*?)"\)', response, re.DOTALL)
+    if match:
+        cleaned = match.group(1)
+    else:
+        cleaned = response
+    # Suppression de tout tag HTML éventuel
+    cleaned = re.sub(r'<[^>]+>', '', cleaned)
+    return cleaned.strip()
 
 ###########################################
 # Assistant 1 : Extraction & recherche    #
@@ -81,7 +100,10 @@ product_assistant_id = product_assistant.id
 email_assistant_instruction = """
 Vous êtes Chat IA, expert en rédaction de mails de relance et assistant de Rach de Quai Alpha.
 Vos mails commencent toujours par "Bonjour [prénom]" et se terminent par "Cordialement Rach Startup manager et Program Manager à Quai Alpha".
-Votre tâche est de rédiger un mail de relance percutant pour convertir le lead, en tenant compte des informations extraites (agent 1), du matching de notre offre (agent 2) et des données du lead (qualification et note).
+Votre tâche est de rédiger un mail de relance percutant pour convertir le lead, en tenant compte :
+- des informations extraites (Assistant 1),
+- du matching de notre offre (Assistant 2),
+- de la qualification et des notes du lead.
 Veillez à intégrer les notes de l'utilisateur pour instaurer une relation de proximité.
 Répondez sous forme d'un texte structuré (salutation, introduction, corps, conclusion).
 """
@@ -179,20 +201,20 @@ if image_file is not None:
     image_data_uri = f"data:image/jpeg;base64,{base64_image}"
     
     try:
-        # Appel à l'API OCR de Mistral
+        # Appel à l'API OCR de Mistral et affichage du texte extrait
         ocr_response = client_mistral.ocr.process(
             model="mistral-ocr-latest",
             document={"type": "image_url", "image_url": image_data_uri}
         )
-        # Nous n'affichons pas les données brutes de l'OCR
         ocr_text = extract_text_from_ocr_response(ocr_response)
         if not ocr_text:
             st.warning("Aucun texte exploitable n'a été extrait.")
         else:
-            st.success("Texte de la carte extrait avec succès.")
+            st.subheader("Texte OCR extrait :")
+            st.text(ocr_text)  # Affichage brut du texte OCR
 
             ##################################################
-            # Appel de l'Assistant 1 : Extraction & recherche  #
+            # Assistant 1 : Extraction & recherche           #
             ##################################################
             thread1 = client_openai.beta.threads.create()
             user_message_agent1 = (
@@ -217,15 +239,16 @@ if image_file is not None:
                 run1 = submit_tool_outputs(thread1.id, run1.id, run1.required_action.submit_tool_outputs.tool_calls)
                 run1 = wait_for_run_completion(thread1.id, run1.id)
             response_agent1 = get_final_assistant_message(thread1.id)
+            cleaned_response_agent1 = clean_response(response_agent1)
             st.subheader("Réponse agent 1 :")
-            st.write(response_agent1)
+            st.markdown(cleaned_response_agent1)
 
             ##################################################
-            # Appel de l'Assistant 2 : Description des produits #
+            # Assistant 2 : Description des produits         #
             ##################################################
             thread2 = client_openai.beta.threads.create()
             user_message_agent2 = (
-                f"Informations sur l'entreprise extraites :\n{response_agent1}\n\n"
+                f"Informations sur l'entreprise extraites :\n{cleaned_response_agent1}\n\n"
                 f"Qualification : {qualification}\n"
                 f"Note : {note}\n\n"
                 "Veuillez rédiger un matching entre nos produits et les besoins du client. "
@@ -245,16 +268,17 @@ if image_file is not None:
                 run2 = submit_tool_outputs(thread2.id, run2.id, run2.required_action.submit_tool_outputs.tool_calls)
                 run2 = wait_for_run_completion(thread2.id, run2.id)
             response_agent2 = get_final_assistant_message(thread2.id)
+            cleaned_response_agent2 = clean_response(response_agent2)
             st.subheader("Réponse agent 2 :")
-            st.write(response_agent2)
+            st.markdown(cleaned_response_agent2)
 
             ##################################################
-            # Appel de l'Assistant 3 : Rédaction du mail       #
+            # Assistant 3 : Rédaction du mail                #
             ##################################################
             thread3 = client_openai.beta.threads.create()
             user_message_agent3 = (
-                f"Informations sur l'intervenant et son entreprise :\n{response_agent1}\n\n"
-                f"Matching de notre offre :\n{response_agent2}\n\n"
+                f"Informations sur l'intervenant et son entreprise :\n{cleaned_response_agent1}\n\n"
+                f"Matching de notre offre :\n{cleaned_response_agent2}\n\n"
                 f"Qualification : {qualification}\n"
                 f"Note : {note}\n\n"
                 "Veuillez rédiger un mail de relance percutant pour convertir ce lead. "
@@ -274,8 +298,9 @@ if image_file is not None:
                 run3 = submit_tool_outputs(thread3.id, run3.id, run3.required_action.submit_tool_outputs.tool_calls)
                 run3 = wait_for_run_completion(thread3.id, run3.id)
             response_agent3 = get_final_assistant_message(thread3.id)
+            cleaned_response_agent3 = clean_response(response_agent3)
             st.subheader("Réponse agent 3 :")
-            st.write(response_agent3)
+            st.markdown(cleaned_response_agent3)
 
     except Exception as e:
         st.error(f"Erreur lors du traitement OCR ou de l'analyse par les assistants : {e}")
