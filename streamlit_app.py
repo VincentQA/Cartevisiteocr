@@ -28,7 +28,7 @@ tavily_client = TavilyClient(api_key=TAVILY_API_KEY)
 ##############################
 # Connexion à la base SQLite  #
 ##############################
-# On suppose que la table est créée dans la page d'affichage
+# On suppose que la table a été créée dans la page "Voir les leads"
 conn = sqlite3.connect("leads.db", check_same_thread=False)
 cursor = conn.cursor()
 
@@ -37,8 +37,7 @@ cursor = conn.cursor()
 ##############################
 def clean_response(response):
     """
-    Nettoie la réponse en supprimant les balises HTML et en remplaçant les séquences '\\n'
-    par de vrais retours à la ligne.
+    Nettoie la réponse en supprimant les balises HTML et convertit les séquences '\\n' en retours à la ligne.
     """
     match = re.search(r'value="(.*?)"\)', response, re.DOTALL)
     cleaned = match.group(1) if match else response
@@ -199,7 +198,6 @@ st.markdown("<hr>", unsafe_allow_html=True)
 st.markdown("<h4 style='text-align:center;'>OU</h4>", unsafe_allow_html=True)
 uploaded_file = st.file_uploader("Uploader la carte", type=["jpg", "jpeg", "png"])
 
-# Saisie de la qualification et de la note (obligatoire)
 qualification = st.selectbox("Qualification du lead", 
                                ["Smart Talk", "Incubation collective", "Incubation individuelle", "Transformation numérique"])
 note = st.text_area("Ajouter une note", placeholder="Entrez votre note ici...")
@@ -208,7 +206,7 @@ if note.strip() == "":
     st.error("Veuillez saisir une note avant de continuer.")
     st.stop()
 
-# Récupération de l'image (capture ou upload)
+# Récupération de l'image
 image_data_uri = None
 if image_file is not None:
     st.image(image_file, caption="Carte de visite capturée", use_column_width=True)
@@ -267,7 +265,7 @@ if image_data_uri is not None:
             st.subheader("Réponse agent 1 :")
             st.markdown(cleaned_response_agent1)
     
-            # Extraction des champs Nom, Prénom, Téléphone, Mail via parsing
+            # Extraction des champs via parsing
             parsed_data = parse_agent1_response(cleaned_response_agent1)
     
             ##################################################
@@ -324,17 +322,27 @@ if image_data_uri is not None:
             st.markdown(cleaned_response_agent3)
     
             ###########################################
-            # Envoi automatique du lead via bouton
+            # Envoi automatique du lead
             ###########################################
-            if st.button("Envoyer le lead"):
-                # Insertion dans la base de données en incluant les données extraites et les réponses
+            if "lead_sent" not in st.session_state:
                 cursor.execute(
                     "INSERT INTO leads (ocr_text, nom, prenom, telephone, mail, agent1, agent2, agent3, qualification, note) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                    (ocr_text, parsed_data["nom"], parsed_data["prenom"], parsed_data["telephone"], parsed_data["mail"],
-                     cleaned_response_agent1, cleaned_response_agent2, cleaned_response_agent3, qualification, note)
+                    (
+                        ocr_text, 
+                        parsed_data["nom"], 
+                        parsed_data["prenom"], 
+                        parsed_data["telephone"], 
+                        parsed_data["mail"],
+                        cleaned_response_agent1, 
+                        cleaned_response_agent2, 
+                        cleaned_response_agent3, 
+                        qualification, 
+                        note
+                    )
                 )
                 conn.commit()
-                st.success("Le lead a été envoyé avec succès.")
+                st.session_state["lead_sent"] = True
+                st.success("Le lead a été envoyé automatiquement.")
     
     except Exception as e:
         st.error(f"Erreur lors du traitement OCR ou de l'analyse par les assistants : {e}")
