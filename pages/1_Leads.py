@@ -5,35 +5,32 @@ import pandas as pd
 st.set_page_config(page_title="Le charte visite 🐱 - Voir les leads", layout="centered")
 st.title("Le charte visite 🐱 - Voir les leads")
 
-@st.cache_resource
-def get_db_connection():
-    # On active check_same_thread=False pour éviter des problèmes de threads
-    return sqlite3.connect("leads.db", check_same_thread=False)
-
-conn = get_db_connection()
+# Connexion à la base de données
+conn = sqlite3.connect("leads.db", check_same_thread=False)
 cursor = conn.cursor()
 
-# Création de la table si elle n'existe pas
-try:
-    cursor.execute("""
-    CREATE TABLE IF NOT EXISTS leads (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        ocr_text TEXT,
-        nom TEXT,
-        prenom TEXT,
-        telephone TEXT,
-        mail TEXT,
-        agent1 TEXT,
-        agent2 TEXT,
-        agent3 TEXT,
-        qualification TEXT,
-        note TEXT,
-        timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
-    )
-    """)
-    conn.commit()
-except Exception as e:
-    st.error("Erreur lors de la création de la table : " + str(e))
+# Option : Supprimer la table existante pour recréer le schéma correct
+cursor.execute("DROP TABLE IF EXISTS leads")
+conn.commit()
+
+# Création de la table avec le schéma complet
+cursor.execute("""
+CREATE TABLE leads (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ocr_text TEXT,
+    nom TEXT,
+    prenom TEXT,
+    telephone TEXT,
+    mail TEXT,
+    agent1 TEXT,
+    agent2 TEXT,
+    agent3 TEXT,
+    qualification TEXT,
+    note TEXT,
+    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+)
+""")
+conn.commit()
 
 # Récupération des données
 try:
@@ -41,7 +38,7 @@ try:
     rows = cursor.fetchall()
     
     if rows:
-        columns = [desc[0] for desc in cursor.description]
+        columns = [description[0] for description in cursor.description]
         df = pd.DataFrame(rows, columns=columns)
         st.dataframe(df)
     else:
