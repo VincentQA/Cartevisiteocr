@@ -233,7 +233,7 @@ st.markdown("<h4 style='text-align:center;'>OU</h4>", unsafe_allow_html=True)
 uploaded_file = st.file_uploader("Uploader la carte", type=["jpg", "jpeg", "png"])
 
 qualification = st.selectbox("Qualification du lead", 
-                               ["Smart Talk", "Incubation collective", "Incubation individuelle", "Transformation numérique"])
+                               ["Discussion sans plus", "Mise en avant des formations", "Mise en avant de l'audit", "Mise en avant des modules IA"])
 note = st.text_area("Ajouter une note", placeholder="Entrez votre note ici...")
 
 if note.strip() == "":
