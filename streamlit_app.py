@@ -28,17 +28,15 @@ tavily_client = TavilyClient(api_key=TAVILY_API_KEY)
 ##############################
 # Connexion à la base SQLite  #
 ##############################
-# On suppose que la table a été créée dans la page "Voir les leads"
 conn = sqlite3.connect("leads.db", check_same_thread=False)
 cursor = conn.cursor()
+# On suppose que la création du schéma se fait dans la page de visualisation.
 
 ##############################
 # Fonctions utilitaires      #
 ##############################
 def clean_response(response):
-    """
-    Nettoie la réponse en supprimant les balises HTML et convertit les séquences '\\n' en retours à la ligne.
-    """
+    """Nettoie la réponse en supprimant les tags HTML et convertit '\\n' en retours à la ligne."""
     match = re.search(r'value="(.*?)"\)', response, re.DOTALL)
     cleaned = match.group(1) if match else response
     cleaned = re.sub(r'<[^>]+>', '', cleaned)
@@ -198,6 +196,7 @@ st.markdown("<hr>", unsafe_allow_html=True)
 st.markdown("<h4 style='text-align:center;'>OU</h4>", unsafe_allow_html=True)
 uploaded_file = st.file_uploader("Uploader la carte", type=["jpg", "jpeg", "png"])
 
+# Saisie de la qualification et de la note (obligatoire)
 qualification = st.selectbox("Qualification du lead", 
                                ["Smart Talk", "Incubation collective", "Incubation individuelle", "Transformation numérique"])
 note = st.text_area("Ajouter une note", placeholder="Entrez votre note ici...")
@@ -206,7 +205,7 @@ if note.strip() == "":
     st.error("Veuillez saisir une note avant de continuer.")
     st.stop()
 
-# Récupération de l'image
+# Récupération de l'image (capture ou upload)
 image_data_uri = None
 if image_file is not None:
     st.image(image_file, caption="Carte de visite capturée", use_column_width=True)
@@ -222,127 +221,116 @@ else:
     st.info("Veuillez capturer ou uploader une photo de la carte.")
 
 ##############################
-# Traitement si image fournie
+# Traitement déclenché par le bouton "Envoyer la note"
 ##############################
-if image_data_uri is not None:
-    try:
-        # Extraction OCR via Mistral
-        ocr_response = client_mistral.ocr.process(
-            model="mistral-ocr-latest",
-            document={"type": "image_url", "image_url": image_data_uri}
-        )
-        ocr_text = extract_text_from_ocr_response(ocr_response)
-        if not ocr_text:
-            st.warning("Aucun texte exploitable n'a été extrait.")
-        else:
-            st.subheader("Texte OCR extrait :")
-            st.text(ocr_text)
-    
-            ##################################################
-            # Assistant 1 : Extraction & recherche
-            ##################################################
-            thread1 = client_openai.beta.threads.create()
-            user_message_agent1 = (
-                f"Données extraites de la carte :\n"
-                f"Qualification : {qualification}\n"
-                f"Note : {note}\n"
-                f"Texte : {ocr_text}\n\n"
-                "Veuillez extraire les informations clés (Nom, Prénom, Téléphone, Mail) "
-                "et compléter par une recherche en ligne."
+if image_data_uri is not None and st.button("Envoyer la note"):
+    if "lead_sent" not in st.session_state:
+        try:
+            # Extraction OCR via Mistral
+            ocr_response = client_mistral.ocr.process(
+                model="mistral-ocr-latest",
+                document={"type": "image_url", "image_url": image_data_uri}
             )
-            client_openai.beta.threads.messages.create(
-                thread_id=thread1.id, role="user", content=user_message_agent1
-            )
-            run1 = client_openai.beta.threads.runs.create(
-                thread_id=thread1.id, assistant_id=assistant_id
-            )
-            run1 = wait_for_run_completion(thread1.id, run1.id)
-            if run1.status == 'requires_action':
-                run1 = submit_tool_outputs(thread1.id, run1.id, run1.required_action.submit_tool_outputs.tool_calls)
+            ocr_text = extract_text_from_ocr_response(ocr_response)
+            if not ocr_text:
+                st.warning("Aucun texte exploitable n'a été extrait.")
+            else:
+                st.subheader("Texte OCR extrait :")
+                st.text(ocr_text)
+        
+                ##################################################
+                # Assistant 1 : Extraction & recherche
+                ##################################################
+                thread1 = client_openai.beta.threads.create()
+                user_message_agent1 = (
+                    f"Données extraites de la carte :\n"
+                    f"Qualification : {qualification}\n"
+                    f"Note : {note}\n"
+                    f"Texte : {ocr_text}\n\n"
+                    "Veuillez extraire les informations clés (Nom, Prénom, Téléphone, Mail) "
+                    "et compléter par une recherche en ligne."
+                )
+                client_openai.beta.threads.messages.create(
+                    thread_id=thread1.id, role="user", content=user_message_agent1
+                )
+                run1 = client_openai.beta.threads.runs.create(
+                    thread_id=thread1.id, assistant_id=assistant_id
+                )
                 run1 = wait_for_run_completion(thread1.id, run1.id)
-            response_agent1 = get_final_assistant_message(thread1.id)
-            cleaned_response_agent1 = clean_response(response_agent1)
-            st.subheader("Réponse agent 1 :")
-            st.markdown(cleaned_response_agent1)
-    
-            # Extraction des champs via parsing
-            parsed_data = parse_agent1_response(cleaned_response_agent1)
-    
-            ##################################################
-            # Assistant 2 : Description des produits
-            ##################################################
-            thread2 = client_openai.beta.threads.create()
-            user_message_agent2 = (
-                f"Informations sur l'entreprise extraites :\n{cleaned_response_agent1}\n\n"
-                f"Qualification : {qualification}\n"
-                f"Note : {note}\n\n"
-                "Veuillez rédiger un matching entre nos produits et les besoins du client, "
-                "en mettant en avant les avantages de nos offres."
-            )
-            client_openai.beta.threads.messages.create(
-                thread_id=thread2.id, role="user", content=user_message_agent2
-            )
-            run2 = client_openai.beta.threads.runs.create(
-                thread_id=thread2.id, assistant_id=product_assistant_id
-            )
-            run2 = wait_for_run_completion(thread2.id, run2.id)
-            if run2.status == 'requires_action':
-                run2 = submit_tool_outputs(thread2.id, run2.id, run2.required_action.submit_tool_outputs.tool_calls)
+                if run1.status == 'requires_action':
+                    run1 = submit_tool_outputs(thread1.id, run1.id, run1.required_action.submit_tool_outputs.tool_calls)
+                    run1 = wait_for_run_completion(thread1.id, run1.id)
+                response_agent1 = get_final_assistant_message(thread1.id)
+                cleaned_response_agent1 = clean_response(response_agent1)
+                st.subheader("Réponse agent 1 :")
+                st.markdown(cleaned_response_agent1)
+        
+                # Extraction des champs via parsing
+                parsed_data = parse_agent1_response(cleaned_response_agent1)
+        
+                ##################################################
+                # Assistant 2 : Description des produits
+                ##################################################
+                thread2 = client_openai.beta.threads.create()
+                user_message_agent2 = (
+                    f"Informations sur l'entreprise extraites :\n{cleaned_response_agent1}\n\n"
+                    f"Qualification : {qualification}\n"
+                    f"Note : {note}\n\n"
+                    "Veuillez rédiger un matching entre nos produits et les besoins du client, "
+                    "en mettant en avant les avantages de nos offres."
+                )
+                client_openai.beta.threads.messages.create(
+                    thread_id=thread2.id, role="user", content=user_message_agent2
+                )
+                run2 = client_openai.beta.threads.runs.create(
+                    thread_id=thread2.id, assistant_id=product_assistant_id
+                )
                 run2 = wait_for_run_completion(thread2.id, run2.id)
-            response_agent2 = get_final_assistant_message(thread2.id)
-            cleaned_response_agent2 = clean_response(response_agent2)
-            st.subheader("Réponse agent 2 :")
-            st.markdown(cleaned_response_agent2)
-    
-            ##################################################
-            # Assistant 3 : Rédaction du mail
-            ##################################################
-            thread3 = client_openai.beta.threads.create()
-            user_message_agent3 = (
-                f"Informations sur l'intervenant et son entreprise :\n{cleaned_response_agent1}\n\n"
-                f"Matching de notre offre :\n{cleaned_response_agent2}\n\n"
-                f"Qualification : {qualification}\n"
-                f"Note : {note}\n\n"
-                "Veuillez rédiger un mail de relance percutant pour convertir ce lead. "
-                "Le mail doit commencer par 'Bonjour [prénom]' et se terminer par 'Cordialement Rach Startup manager et Program Manager à Quai Alpha'."
-            )
-            client_openai.beta.threads.messages.create(
-                thread_id=thread3.id, role="user", content=user_message_agent3
-            )
-            run3 = client_openai.beta.threads.runs.create(
-                thread_id=thread3.id, assistant_id=email_assistant_id
-            )
-            run3 = wait_for_run_completion(thread3.id, run3.id)
-            if run3.status == 'requires_action':
-                run3 = submit_tool_outputs(thread3.id, run3.id, run3.required_action.submit_tool_outputs.tool_calls)
+                if run2.status == 'requires_action':
+                    run2 = submit_tool_outputs(thread2.id, run2.id, run2.required_action.submit_tool_outputs.tool_calls)
+                    run2 = wait_for_run_completion(thread2.id, run2.id)
+                response_agent2 = get_final_assistant_message(thread2.id)
+                cleaned_response_agent2 = clean_response(response_agent2)
+                st.subheader("Réponse agent 2 :")
+                st.markdown(cleaned_response_agent2)
+        
+                ##################################################
+                # Assistant 3 : Rédaction du mail
+                ##################################################
+                thread3 = client_openai.beta.threads.create()
+                user_message_agent3 = (
+                    f"Informations sur l'intervenant et son entreprise :\n{cleaned_response_agent1}\n\n"
+                    f"Matching de notre offre :\n{cleaned_response_agent2}\n\n"
+                    f"Qualification : {qualification}\n"
+                    f"Note : {note}\n\n"
+                    "Veuillez rédiger un mail de relance percutant pour convertir ce lead. "
+                    "Le mail doit commencer par 'Bonjour [prénom]' et se terminer par 'Cordialement Rach Startup manager et Program Manager à Quai Alpha'."
+                )
+                client_openai.beta.threads.messages.create(
+                    thread_id=thread3.id, role="user", content=user_message_agent3
+                )
+                run3 = client_openai.beta.threads.runs.create(
+                    thread_id=thread3.id, assistant_id=email_assistant_id
+                )
                 run3 = wait_for_run_completion(thread3.id, run3.id)
-            response_agent3 = get_final_assistant_message(thread3.id)
-            cleaned_response_agent3 = clean_response(response_agent3)
-            st.subheader("Réponse agent 3 :")
-            st.markdown(cleaned_response_agent3)
-    
-            ###########################################
-            # Envoi automatique du lead
-            ###########################################
-            if "lead_sent" not in st.session_state:
+                if run3.status == 'requires_action':
+                    run3 = submit_tool_outputs(thread3.id, run3.id, run3.required_action.submit_tool_outputs.tool_calls)
+                    run3 = wait_for_run_completion(thread3.id, run3.id)
+                response_agent3 = get_final_assistant_message(thread3.id)
+                cleaned_response_agent3 = clean_response(response_agent3)
+                st.subheader("Réponse agent 3 :")
+                st.markdown(cleaned_response_agent3)
+        
+                ###########################################
+                # Envoi automatique du lead
+                ###########################################
                 cursor.execute(
                     "INSERT INTO leads (ocr_text, nom, prenom, telephone, mail, agent1, agent2, agent3, qualification, note) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                    (
-                        ocr_text, 
-                        parsed_data["nom"], 
-                        parsed_data["prenom"], 
-                        parsed_data["telephone"], 
-                        parsed_data["mail"],
-                        cleaned_response_agent1, 
-                        cleaned_response_agent2, 
-                        cleaned_response_agent3, 
-                        qualification, 
-                        note
-                    )
+                    (ocr_text, parsed_data["nom"], parsed_data["prenom"], parsed_data["telephone"], parsed_data["mail"],
+                     cleaned_response_agent1, cleaned_response_agent2, cleaned_response_agent3, qualification, note)
                 )
                 conn.commit()
                 st.session_state["lead_sent"] = True
                 st.success("Le lead a été envoyé automatiquement.")
-    
-    except Exception as e:
-        st.error(f"Erreur lors du traitement OCR ou de l'analyse par les assistants : {e}")
+        except Exception as e:
+            st.error(f"Erreur lors du traitement OCR ou de l'analyse par les assistants : {e}")
