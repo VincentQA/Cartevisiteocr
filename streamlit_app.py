@@ -25,15 +25,19 @@ client_openai = OpenAI(api_key=OPENAI_API_KEY)
 client_mistral = Mistral(api_key=MISTRAL_API_KEY)
 tavily_client = TavilyClient(api_key=TAVILY_API_KEY)
 
-##############################
-# Connexion à la base SQLite #
-##############################
+###########################################
+# Connexion à la base SQLite & création de la table
+###########################################
 conn = sqlite3.connect("leads.db", check_same_thread=False)
 cursor = conn.cursor()
 cursor.execute("""
 CREATE TABLE IF NOT EXISTS leads (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     ocr_text TEXT,
+    nom TEXT,
+    prenom TEXT,
+    telephone TEXT,
+    mail TEXT,
     agent1 TEXT,
     agent2 TEXT,
     agent3 TEXT,
@@ -44,11 +48,14 @@ CREATE TABLE IF NOT EXISTS leads (
 """)
 conn.commit()
 
-##############################
-# Fonctions utilitaires      #
-##############################
+###########################################
+# Fonctions utilitaires & parsing
+###########################################
 def clean_response(response):
-    """Nettoie la réponse en supprimant les tags HTML et en convertissant les séquences '\\n' en retours à la ligne."""
+    """
+    Nettoie la réponse en supprimant les balises HTML et en remplaçant les séquences '\\n'
+    par des retours à la ligne réels.
+    """
     match = re.search(r'value="(.*?)"\)', response, re.DOTALL)
     cleaned = match.group(1) if match else response
     cleaned = re.sub(r'<[^>]+>', '', cleaned)
@@ -67,7 +74,7 @@ def extract_text_from_ocr_response(ocr_response):
     return extracted_text.strip()
 
 def tavily_search(query):
-    """Effectue une recherche via Tavily."""
+    """Effectue une recherche en ligne via Tavily."""
     return tavily_client.get_search_context(query, search_depth="advanced", max_tokens=8000)
 
 def wait_for_run_completion(thread_id, run_id):
@@ -79,7 +86,7 @@ def wait_for_run_completion(thread_id, run_id):
             return run
 
 def submit_tool_outputs(thread_id, run_id, tools_to_call):
-    """Soumet les outputs d'outils si nécessaire."""
+    """Soumet les sorties d'outils si nécessaire."""
     tool_output_array = []
     for tool in tools_to_call:
         if tool.function.name == "tavily_search":
@@ -102,15 +109,48 @@ def get_final_assistant_message(thread_id):
                 final_msg += content.get("text", "") if isinstance(content, dict) else str(content)
     return final_msg.strip()
 
-##############################
-# Définition des assistants  #
-##############################
+def parse_agent1_response(text):
+    """
+    Parse la réponse de l'agent 1 pour extraire Nom, Prénom, Téléphone et Mail.
+    La réponse doit contenir des lignes de la forme :
+        Nom: Valeur
+        Prénom: Valeur
+        Téléphone: Valeur
+        Mail: Valeur
+    """
+    data = {"nom": "", "prenom": "", "telephone": "", "mail": ""}
+    nom = re.search(r"Nom\s*:\s*(.+)", text)
+    prenom = re.search(r"Pr[ée]nom\s*:\s*(.+)", text)
+    tel = re.search(r"T[eé]l[eé]phone?\s*:\s*(.+)", text, re.IGNORECASE)
+    mail = re.search(r"Mail\s*:\s*(.+)", text, re.IGNORECASE)
+    if nom:
+        data["nom"] = nom.group(1).strip()
+    if prenom:
+        data["prenom"] = prenom.group(1).strip()
+    if tel:
+        data["telephone"] = tel.group(1).strip()
+    if mail:
+        data["mail"] = mail.group(1).strip()
+    return data
+
+###########################################
+# Définition des assistants
+###########################################
 # Assistant 1 : Extraction & recherche
 assistant_prompt_instruction = """
 Vous êtes Chat IA, expert en analyse de cartes de visite.
-Votre tâche est d'extraire le nom, le prénom et l'entreprise à partir du texte OCR fourni, 
-et de compléter ces informations par une recherche en ligne (via la fonction tavily_search).
-Répondez sous forme de texte structuré avec des catégories claires.
+Votre tâche est d'extraire les informations suivantes du texte OCR fourni :
+    - Nom
+    - Prénom
+    - Téléphone
+    - Mail
+Et compléter ces informations par une recherche en ligne (via la fonction tavily_search) pour obtenir d'autres détails sur l'intervenant et son entreprise.
+Répondez sous forme de texte structuré, par exemple :
+Nom: Doe
+Prénom: John
+Téléphone: 0123456789
+Mail: john.doe@example.com
+Entreprise: Example Corp
 """
 assistant = client_openai.beta.assistants.create(
     instructions=assistant_prompt_instruction,
@@ -135,12 +175,12 @@ assistant_id = assistant.id
 # Assistant 2 : Description des produits
 product_assistant_instruction = """
 Vous êtes Chat IA, expert en commerce et analyse de besoins.
-Réalisez un matching entre nos produits et les besoins du client, à partir des informations sur l'entreprise et du lead.
-Produits : 
+Votre tâche est de réaliser un matching entre nos produits et les besoins du client, à partir des informations sur l'entreprise et du lead.
+Produits :
 - Incubation collective : 3 mois de cours collectif intensif.
 - Incubation individuelle : Accompagnement individuel pour projets matures.
 - Transformation numérique : Accompagnement digital.
-Répondez sous forme d'un texte structuré en mettant en avant les avantages.
+Répondez sous forme de texte structuré en mettant en avant les avantages.
 """
 product_assistant = client_openai.beta.assistants.create(
     instructions=product_assistant_instruction,
@@ -152,8 +192,10 @@ product_assistant_id = product_assistant.id
 email_assistant_instruction = """
 Vous êtes Chat IA, expert en rédaction de mails de relance et assistant de Rach de Quai Alpha.
 Vos mails commencent par "Bonjour [prénom]" et se terminent par "Cordialement Rach Startup manager et Program Manager à Quai Alpha".
-Rédigez un mail de relance percutant en tenant compte des informations extraites (Assistant 1), 
-du matching de l'offre (Assistant 2) et des données du lead.
+Rédigez un mail de relance percutant en tenant compte :
+    - Des informations extraites (Assistant 1)
+    - Du matching de notre offre (Assistant 2)
+    - De la qualification et des notes du lead.
 Répondez sous forme de texte structuré (salutation, introduction, corps, conclusion).
 """
 email_assistant = client_openai.beta.assistants.create(
@@ -162,9 +204,9 @@ email_assistant = client_openai.beta.assistants.create(
 )
 email_assistant_id = email_assistant.id
 
-##############################
+###########################################
 # Interface de saisie du lead
-##############################
+###########################################
 st.subheader("Capture / Upload de la carte de visite")
 
 # Capture via caméra
@@ -198,12 +240,12 @@ elif uploaded_file is not None:
 else:
     st.info("Veuillez capturer ou uploader une photo de la carte.")
 
-##############################
+###########################################
 # Traitement si image fournie
-##############################
+###########################################
 if image_data_uri is not None:
     try:
-        # Extraction OCR via Mistral
+        # Appel à l'API OCR de Mistral
         ocr_response = client_mistral.ocr.process(
             model="mistral-ocr-latest",
             document={"type": "image_url", "image_url": image_data_uri}
@@ -215,18 +257,27 @@ if image_data_uri is not None:
             st.subheader("Texte OCR extrait :")
             st.text(ocr_text)
     
+            ##################################################
             # Assistant 1 : Extraction & recherche
+            ##################################################
             thread1 = client_openai.beta.threads.create()
             user_message_agent1 = (
                 f"Données extraites de la carte :\n"
                 f"Qualification : {qualification}\n"
                 f"Note : {note}\n"
                 f"Texte : {ocr_text}\n\n"
-                "Veuillez extraire les informations clés (nom, prénom, entreprise) "
+                "Veuillez extraire les informations clés (Nom, Prénom, Téléphone, Mail) "
                 "et compléter par une recherche en ligne pour obtenir des informations complémentaires."
             )
-            client_openai.beta.threads.messages.create(thread_id=thread1.id, role="user", content=user_message_agent1)
-            run1 = client_openai.beta.threads.runs.create(thread_id=thread1.id, assistant_id=assistant_id)
+            client_openai.beta.threads.messages.create(
+                thread_id=thread1.id,
+                role="user",
+                content=user_message_agent1
+            )
+            run1 = client_openai.beta.threads.runs.create(
+                thread_id=thread1.id,
+                assistant_id=assistant_id
+            )
             run1 = wait_for_run_completion(thread1.id, run1.id)
             if run1.status == 'requires_action':
                 run1 = submit_tool_outputs(thread1.id, run1.id, run1.required_action.submit_tool_outputs.tool_calls)
@@ -236,7 +287,12 @@ if image_data_uri is not None:
             st.subheader("Réponse agent 1 :")
             st.markdown(cleaned_response_agent1)
     
+            # Extraction des champs Nom, Prénom, Téléphone, Mail via parsing
+            parsed_data = parse_agent1_response(cleaned_response_agent1)
+    
+            ##################################################
             # Assistant 2 : Description des produits
+            ##################################################
             thread2 = client_openai.beta.threads.create()
             user_message_agent2 = (
                 f"Informations sur l'entreprise extraites :\n{cleaned_response_agent1}\n\n"
@@ -245,8 +301,15 @@ if image_data_uri is not None:
                 "Veuillez rédiger un matching entre nos produits et les besoins du client. "
                 "Présentez clairement les avantages et l'utilité de nos offres."
             )
-            client_openai.beta.threads.messages.create(thread_id=thread2.id, role="user", content=user_message_agent2)
-            run2 = client_openai.beta.threads.runs.create(thread_id=thread2.id, assistant_id=product_assistant_id)
+            client_openai.beta.threads.messages.create(
+                thread_id=thread2.id,
+                role="user",
+                content=user_message_agent2
+            )
+            run2 = client_openai.beta.threads.runs.create(
+                thread_id=thread2.id,
+                assistant_id=product_assistant_id
+            )
             run2 = wait_for_run_completion(thread2.id, run2.id)
             if run2.status == 'requires_action':
                 run2 = submit_tool_outputs(thread2.id, run2.id, run2.required_action.submit_tool_outputs.tool_calls)
@@ -256,7 +319,9 @@ if image_data_uri is not None:
             st.subheader("Réponse agent 2 :")
             st.markdown(cleaned_response_agent2)
     
+            ##################################################
             # Assistant 3 : Rédaction du mail
+            ##################################################
             thread3 = client_openai.beta.threads.create()
             user_message_agent3 = (
                 f"Informations sur l'intervenant et son entreprise :\n{cleaned_response_agent1}\n\n"
@@ -266,8 +331,15 @@ if image_data_uri is not None:
                 "Veuillez rédiger un mail de relance percutant pour convertir ce lead. "
                 "Le mail doit commencer par 'Bonjour [prénom]' et se terminer par 'Cordialement Rach Startup manager et Program Manager à Quai Alpha'."
             )
-            client_openai.beta.threads.messages.create(thread_id=thread3.id, role="user", content=user_message_agent3)
-            run3 = client_openai.beta.threads.runs.create(thread_id=thread3.id, assistant_id=email_assistant_id)
+            client_openai.beta.threads.messages.create(
+                thread_id=thread3.id,
+                role="user",
+                content=user_message_agent3
+            )
+            run3 = client_openai.beta.threads.runs.create(
+                thread_id=thread3.id,
+                assistant_id=email_assistant_id
+            )
             run3 = wait_for_run_completion(thread3.id, run3.id)
             if run3.status == 'requires_action':
                 run3 = submit_tool_outputs(thread3.id, run3.id, run3.required_action.submit_tool_outputs.tool_calls)
@@ -277,11 +349,16 @@ if image_data_uri is not None:
             st.subheader("Réponse agent 3 :")
             st.markdown(cleaned_response_agent3)
     
+            ###########################################
             # Enregistrement dans la base de données
+            ###########################################
             if st.button("Enregistrer les données dans la base de données"):
+                # On parse la réponse de l'agent 1 pour extraire Nom, Prénom, Téléphone, Mail
+                parsed_data = parse_agent1_response(cleaned_response_agent1)
                 cursor.execute(
-                    "INSERT INTO leads (ocr_text, agent1, agent2, agent3, qualification, note) VALUES (?, ?, ?, ?, ?, ?)",
-                    (ocr_text, cleaned_response_agent1, cleaned_response_agent2, cleaned_response_agent3, qualification, note)
+                    "INSERT INTO leads (ocr_text, nom, prenom, telephone, mail, agent1, agent2, agent3, qualification, note) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (ocr_text, parsed_data["nom"], parsed_data["prenom"], parsed_data["telephone"], parsed_data["mail"], 
+                     cleaned_response_agent1, cleaned_response_agent2, cleaned_response_agent3, qualification, note)
                 )
                 conn.commit()
                 st.success("Données enregistrées dans la base de données.")
