@@ -30,7 +30,7 @@ tavily_client = TavilyClient(api_key=TAVILY_API_KEY)
 ##############################
 conn = sqlite3.connect("leads.db", check_same_thread=False)
 cursor = conn.cursor()
-# On suppose que la création du schéma se fait dans la page de visualisation.
+# On suppose que la création de la table est gérée sur la page "Voir les leads"
 
 ##############################
 # Fonctions utilitaires      #
@@ -196,7 +196,6 @@ st.markdown("<hr>", unsafe_allow_html=True)
 st.markdown("<h4 style='text-align:center;'>OU</h4>", unsafe_allow_html=True)
 uploaded_file = st.file_uploader("Uploader la carte", type=["jpg", "jpeg", "png"])
 
-# Saisie de la qualification et de la note (obligatoire)
 qualification = st.selectbox("Qualification du lead", 
                                ["Smart Talk", "Incubation collective", "Incubation individuelle", "Transformation numérique"])
 note = st.text_area("Ajouter une note", placeholder="Entrez votre note ici...")
@@ -220,11 +219,11 @@ elif uploaded_file is not None:
 else:
     st.info("Veuillez capturer ou uploader une photo de la carte.")
 
-##############################
-# Traitement déclenché par le bouton "Envoyer la note"
-##############################
-if image_data_uri is not None and st.button("Envoyer la note"):
-    if "lead_sent" not in st.session_state:
+# Bouton "Envoyer la note" visible en permanence
+if st.button("Envoyer la note"):
+    if image_data_uri is None:
+        st.error("Aucune image n'a été fournie. Veuillez capturer ou uploader une photo de la carte.")
+    else:
         try:
             # Extraction OCR via Mistral
             ocr_response = client_mistral.ocr.process(
@@ -322,7 +321,7 @@ if image_data_uri is not None and st.button("Envoyer la note"):
                 st.markdown(cleaned_response_agent3)
         
                 ###########################################
-                # Envoi automatique du lead
+                # Envoi automatique du lead dans la DB
                 ###########################################
                 cursor.execute(
                     "INSERT INTO leads (ocr_text, nom, prenom, telephone, mail, agent1, agent2, agent3, qualification, note) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
