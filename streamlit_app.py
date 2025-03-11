@@ -28,7 +28,7 @@ tavily_client = TavilyClient(api_key=TAVILY_API_KEY)
 ##############################
 # Connexion à la base SQLite  #
 ##############################
-# On suppose que la table existe (la création est gérée dans la page "Voir les leads")
+# On suppose que la table est créée dans la page d'affichage
 conn = sqlite3.connect("leads.db", check_same_thread=False)
 cursor = conn.cursor()
 
@@ -36,7 +36,10 @@ cursor = conn.cursor()
 # Fonctions utilitaires      #
 ##############################
 def clean_response(response):
-    """Nettoie la réponse en supprimant les tags HTML et convertit '\\n' en retours à la ligne."""
+    """
+    Nettoie la réponse en supprimant les balises HTML et en remplaçant les séquences '\\n'
+    par de vrais retours à la ligne.
+    """
     match = re.search(r'value="(.*?)"\)', response, re.DOTALL)
     cleaned = match.group(1) if match else response
     cleaned = re.sub(r'<[^>]+>', '', cleaned)
@@ -67,7 +70,7 @@ def wait_for_run_completion(thread_id, run_id):
             return run
 
 def submit_tool_outputs(thread_id, run_id, tools_to_call):
-    """Soumet les outputs d'outils si nécessaire."""
+    """Soumet les sorties d'outils si nécessaire."""
     tool_output_array = []
     for tool in tools_to_call:
         if tool.function.name == "tavily_search":
@@ -125,7 +128,7 @@ Votre tâche est d'extraire les informations suivantes du texte OCR fourni :
     - Prénom
     - Téléphone
     - Mail
-Et compléter ces informations par une recherche en ligne (via la fonction tavily_search).
+Et de compléter ces informations par une recherche en ligne.
 Répondez sous forme de texte structuré, par exemple :
 Nom: Doe
 Prénom: John
@@ -155,45 +158,13 @@ assistant_id = assistant.id
 
 # Assistant 2 : Description des produits
 product_assistant_instruction = """
-Tu es un responsable commerciale.
-Ta tâche est de réaliser en fonction des informations sur le client ainsi que des notes de l’utilisateur un matching entre nos produits et les besoins du client.
-
-Voici la présentation de ce que Nin-IA propose : 
-
-**Propulsez Votre Expertise en IA avec NIN-IA : Formations, Modules et Audits, la Triade du Succès !**
-
-L'Intelligence Artificielle est la clé du futur, et NIN-IA vous offre la boîte à outils complète pour la maîtriser. Nos **formations de pointe** sont au cœur de notre offre, vous dotant des compétences essentielles. Pour une flexibilité maximale et des besoins spécifiques, découvrez nos **modules IA à la carte**. Et pour assurer le succès de vos projets, nos **audits IA experts** sont votre filet de sécurité.
-
-**Notre priorité : Votre montée en compétences grâce à nos formations !**
-
-- **Formations de Pointe : Devenez un Expert en IA Générative** : Nos formations vous plongent au cœur des algorithmes et des outils d'IA les plus performants. Adaptées à tous les niveaux, elles vous permettent de créer du contenu innovant, d'optimiser vos processus et de surpasser vos concurrents. **Ne vous contentez pas de suivre la vague, surfez sur elle !**
-- **Modules IA : Apprentissage Personnalisé, Impact Immédiat** : Pour compléter votre formation ou répondre à des besoins précis, explorez nos modules IA à la carte. Concentrés sur des compétences spécifiques, ils vous offrent un apprentissage ciblé et une mise en œuvre rapide. **La flexibilité au service de votre expertise !**
-- **Audits IA : Sécurisez Votre Investissement, Maximisez Votre ROI** : Avant d'investir massivement dans l'IA, assurez-vous que votre stratégie est solide. Nos audits IA identifient les points faibles de votre projet, optimisent vos ressources et évitent les erreurs coûteuses. **L'assurance d'un succès durable !**
-
-**Détails de Notre Offre :**
-
-- **Formations Structurées :**
-    - **IA Générative 101 : Les Fondamentaux (Débutant) :** Apprenez les bases et explorez les premières applications concrètes.
-    - **Création de Contenu Révolutionnaire avec ChatGPT (Intermédiaire) :** Maîtrisez ChatGPT pour générer des textes percutants.
-    - **Deep Learning pour l'IA Générative : Devenez un Expert (Avancé) :** Plongez au cœur des réseaux neuronaux et débloquez le plein potentiel de l'IA.
-    - **IA Générative pour le Marketing Digital (Spécial Marketing) :** Multipliez vos leads et convertissez vos prospects grâce à l'IA.
-    - **Intégration de l'IA Générative dans Votre Entreprise (Spécial Entreprise) :** Intégrez l'IA dans vos processus et créez de nouvelles opportunités.
-- **Modules IA à la Carte (Nouveauté !) :**
-    - **[Exemple] : "Module : Optimisation des Prompts pour ChatGPT" :** Maîtrisez l'art de formuler des requêtes efficaces pour obtenir des résultats exceptionnels avec ChatGPT. **Transformez vos instructions en or !**
-    - **[Exemple] : "Module : Analyse de Sentiments avec l'IA" :** Comprenez les émotions de vos clients et adaptez votre communication en conséquence. **Transformez les données en insights précieux !**
-    - **[Exemple] : "Module : Génération d'Images avec Stable Diffusion" :** Créez des visuels époustouflants en quelques clics grâce à la puissance de l'IA. **Donnez vie à vos idées les plus folles !**
-- **Audits IA Experts :**
-    - Analyse approfondie de votre projet IA.
-    - Identification des risques et des opportunités.
-    - Recommandations personnalisées pour optimiser votre ROI.
-    - Garantie de conformité réglementaire.
-
-**Pourquoi choisir NIN-IA ?**
-
-- **Expertise Reconnue :** Des formateurs passionnés et des experts en IA à votre service.
-- **Approche Pédagogique Innovante :** Apprentissage pratique et mises en situation réelles.
-- **Offre Complète :** Formations, modules et audits pour répondre à tous vos besoins.
-- **Accompagnement Personnalisé :** Nous sommes à vos côtés à chaque étape de votre parcours.
+Vous êtes Chat IA, expert en commerce et analyse de besoins.
+Réalisez un matching entre nos produits et les besoins du client, à partir des informations sur l'entreprise et du lead.
+Produits :
+- Incubation collective : 3 mois de cours collectif intensif.
+- Incubation individuelle : Accompagnement individuel pour projets matures.
+- Transformation numérique : Accompagnement digital.
+Répondez sous forme de texte structuré en mettant en avant les avantages.
 """
 product_assistant = client_openai.beta.assistants.create(
     instructions=product_assistant_instruction,
@@ -203,17 +174,13 @@ product_assistant_id = product_assistant.id
 
 # Assistant 3 : Rédaction du mail
 email_assistant_instruction = """
-Tu es un expert en rédaction de mails de relance et assistant d’Emeline de Nin-IA.
-Vos mails commencent toujours par "Bonjour [prénom]" et se terminent par "Cordialement Emeline Boulange, Co-dirigeante de Nin-IA.
-
-TA tâche est de rédiger un mail de relance percutant pour convertir le lead, en tenant compte :
-
-- des informations extraites (Assistant 1),
-- du matching de notre offre (Assistant 2),
-- de la qualification et des notes du lead.
-Veillez à intégrer les notes de l'utilisateur pour instaurer une relation de proximité.
-Et surtout bien mettre en place le contexte de la rencontre si cela est précisé 
-Répondez sous forme d'un texte structuré (salutation, introduction, corps, conclusion).
+Vous êtes Chat IA, expert en rédaction de mails de relance et assistant de Rach de Quai Alpha.
+Vos mails commencent par "Bonjour [prénom]" et se terminent par "Cordialement Rach Startup manager et Program Manager à Quai Alpha".
+Rédigez un mail de relance percutant en tenant compte :
+    - Des informations extraites (Assistant 1)
+    - Du matching de notre offre (Assistant 2)
+    - De la qualification et des notes du lead.
+Répondez sous forme de texte structuré (salutation, introduction, corps, conclusion).
 """
 email_assistant = client_openai.beta.assistants.create(
     instructions=email_assistant_instruction,
@@ -226,21 +193,22 @@ email_assistant_id = email_assistant.id
 ##############################
 st.subheader("Capture / Upload de la carte de visite")
 
-# Option de capture via caméra ou upload
+# Option de capture ou upload
 image_file = st.camera_input("Prenez une photo des cartes de visite")
 st.markdown("<hr>", unsafe_allow_html=True)
 st.markdown("<h4 style='text-align:center;'>OU</h4>", unsafe_allow_html=True)
 uploaded_file = st.file_uploader("Uploader la carte", type=["jpg", "jpeg", "png"])
 
+# Saisie de la qualification et de la note (obligatoire)
 qualification = st.selectbox("Qualification du lead", 
-                               ["Discussion sans plus", "Mise en avant des formations", "Mise en avant de l'audit", "Mise en avant des modules IA"])
+                               ["Smart Talk", "Incubation collective", "Incubation individuelle", "Transformation numérique"])
 note = st.text_area("Ajouter une note", placeholder="Entrez votre note ici...")
 
 if note.strip() == "":
     st.error("Veuillez saisir une note avant de continuer.")
     st.stop()
 
-# Récupération de l'image
+# Récupération de l'image (capture ou upload)
 image_data_uri = None
 if image_file is not None:
     st.image(image_file, caption="Carte de visite capturée", use_column_width=True)
@@ -255,9 +223,12 @@ elif uploaded_file is not None:
 else:
     st.info("Veuillez capturer ou uploader une photo de la carte.")
 
+##############################
+# Traitement si image fournie
+##############################
 if image_data_uri is not None:
     try:
-        # Extraction OCR
+        # Extraction OCR via Mistral
         ocr_response = client_mistral.ocr.process(
             model="mistral-ocr-latest",
             document={"type": "image_url", "image_url": image_data_uri}
@@ -269,7 +240,9 @@ if image_data_uri is not None:
             st.subheader("Texte OCR extrait :")
             st.text(ocr_text)
     
+            ##################################################
             # Assistant 1 : Extraction & recherche
+            ##################################################
             thread1 = client_openai.beta.threads.create()
             user_message_agent1 = (
                 f"Données extraites de la carte :\n"
@@ -277,7 +250,7 @@ if image_data_uri is not None:
                 f"Note : {note}\n"
                 f"Texte : {ocr_text}\n\n"
                 "Veuillez extraire les informations clés (Nom, Prénom, Téléphone, Mail) "
-                "et compléter par une recherche en ligne pour obtenir des informations complémentaires."
+                "et compléter par une recherche en ligne."
             )
             client_openai.beta.threads.messages.create(
                 thread_id=thread1.id, role="user", content=user_message_agent1
@@ -294,17 +267,19 @@ if image_data_uri is not None:
             st.subheader("Réponse agent 1 :")
             st.markdown(cleaned_response_agent1)
     
-            # Extraction des champs via parsing
+            # Extraction des champs Nom, Prénom, Téléphone, Mail via parsing
             parsed_data = parse_agent1_response(cleaned_response_agent1)
     
+            ##################################################
             # Assistant 2 : Description des produits
+            ##################################################
             thread2 = client_openai.beta.threads.create()
             user_message_agent2 = (
                 f"Informations sur l'entreprise extraites :\n{cleaned_response_agent1}\n\n"
                 f"Qualification : {qualification}\n"
                 f"Note : {note}\n\n"
-                "Veuillez rédiger un matching entre nos produits et les besoins du client. "
-                "Présentez clairement les avantages et l'utilité de nos offres."
+                "Veuillez rédiger un matching entre nos produits et les besoins du client, "
+                "en mettant en avant les avantages de nos offres."
             )
             client_openai.beta.threads.messages.create(
                 thread_id=thread2.id, role="user", content=user_message_agent2
@@ -321,7 +296,9 @@ if image_data_uri is not None:
             st.subheader("Réponse agent 2 :")
             st.markdown(cleaned_response_agent2)
     
+            ##################################################
             # Assistant 3 : Rédaction du mail
+            ##################################################
             thread3 = client_openai.beta.threads.create()
             user_message_agent3 = (
                 f"Informations sur l'intervenant et son entreprise :\n{cleaned_response_agent1}\n\n"
@@ -346,15 +323,18 @@ if image_data_uri is not None:
             st.subheader("Réponse agent 3 :")
             st.markdown(cleaned_response_agent3)
     
-            # Enregistrement dans la base de données
-            if st.button("Enregistrer les données dans la base de données"):
+            ###########################################
+            # Envoi automatique du lead via bouton
+            ###########################################
+            if st.button("Envoyer le lead"):
+                # Insertion dans la base de données en incluant les données extraites et les réponses
                 cursor.execute(
                     "INSERT INTO leads (ocr_text, nom, prenom, telephone, mail, agent1, agent2, agent3, qualification, note) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     (ocr_text, parsed_data["nom"], parsed_data["prenom"], parsed_data["telephone"], parsed_data["mail"],
                      cleaned_response_agent1, cleaned_response_agent2, cleaned_response_agent3, qualification, note)
                 )
                 conn.commit()
-                st.success("Données enregistrées dans la base de données.")
+                st.success("Le lead a été envoyé avec succès.")
     
     except Exception as e:
         st.error(f"Erreur lors du traitement OCR ou de l'analyse par les assistants : {e}")
