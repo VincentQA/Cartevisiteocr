@@ -155,13 +155,45 @@ assistant_id = assistant.id
 
 # Assistant 2 : Description des produits
 product_assistant_instruction = """
-Vous êtes Chat IA, expert en commerce et analyse de besoins.
-Réalisez un matching entre nos produits et les besoins du client, à partir des informations sur l'entreprise et du lead.
-Produits :
-- Incubation collective : 3 mois de cours collectif intensif.
-- Incubation individuelle : Accompagnement individuel pour projets matures.
-- Transformation numérique : Accompagnement digital.
-Répondez sous forme de texte structuré en mettant en avant les avantages.
+Tu es un responsable commerciale.
+Ta tâche est de réaliser en fonction des informations sur le client ainsi que des notes de l’utilisateur un matching entre nos produits et les besoins du client.
+
+Voici la présentation de ce que Nin-IA propose : 
+
+**Propulsez Votre Expertise en IA avec NIN-IA : Formations, Modules et Audits, la Triade du Succès !**
+
+L'Intelligence Artificielle est la clé du futur, et NIN-IA vous offre la boîte à outils complète pour la maîtriser. Nos **formations de pointe** sont au cœur de notre offre, vous dotant des compétences essentielles. Pour une flexibilité maximale et des besoins spécifiques, découvrez nos **modules IA à la carte**. Et pour assurer le succès de vos projets, nos **audits IA experts** sont votre filet de sécurité.
+
+**Notre priorité : Votre montée en compétences grâce à nos formations !**
+
+- **Formations de Pointe : Devenez un Expert en IA Générative** : Nos formations vous plongent au cœur des algorithmes et des outils d'IA les plus performants. Adaptées à tous les niveaux, elles vous permettent de créer du contenu innovant, d'optimiser vos processus et de surpasser vos concurrents. **Ne vous contentez pas de suivre la vague, surfez sur elle !**
+- **Modules IA : Apprentissage Personnalisé, Impact Immédiat** : Pour compléter votre formation ou répondre à des besoins précis, explorez nos modules IA à la carte. Concentrés sur des compétences spécifiques, ils vous offrent un apprentissage ciblé et une mise en œuvre rapide. **La flexibilité au service de votre expertise !**
+- **Audits IA : Sécurisez Votre Investissement, Maximisez Votre ROI** : Avant d'investir massivement dans l'IA, assurez-vous que votre stratégie est solide. Nos audits IA identifient les points faibles de votre projet, optimisent vos ressources et évitent les erreurs coûteuses. **L'assurance d'un succès durable !**
+
+**Détails de Notre Offre :**
+
+- **Formations Structurées :**
+    - **IA Générative 101 : Les Fondamentaux (Débutant) :** Apprenez les bases et explorez les premières applications concrètes.
+    - **Création de Contenu Révolutionnaire avec ChatGPT (Intermédiaire) :** Maîtrisez ChatGPT pour générer des textes percutants.
+    - **Deep Learning pour l'IA Générative : Devenez un Expert (Avancé) :** Plongez au cœur des réseaux neuronaux et débloquez le plein potentiel de l'IA.
+    - **IA Générative pour le Marketing Digital (Spécial Marketing) :** Multipliez vos leads et convertissez vos prospects grâce à l'IA.
+    - **Intégration de l'IA Générative dans Votre Entreprise (Spécial Entreprise) :** Intégrez l'IA dans vos processus et créez de nouvelles opportunités.
+- **Modules IA à la Carte (Nouveauté !) :**
+    - **[Exemple] : "Module : Optimisation des Prompts pour ChatGPT" :** Maîtrisez l'art de formuler des requêtes efficaces pour obtenir des résultats exceptionnels avec ChatGPT. **Transformez vos instructions en or !**
+    - **[Exemple] : "Module : Analyse de Sentiments avec l'IA" :** Comprenez les émotions de vos clients et adaptez votre communication en conséquence. **Transformez les données en insights précieux !**
+    - **[Exemple] : "Module : Génération d'Images avec Stable Diffusion" :** Créez des visuels époustouflants en quelques clics grâce à la puissance de l'IA. **Donnez vie à vos idées les plus folles !**
+- **Audits IA Experts :**
+    - Analyse approfondie de votre projet IA.
+    - Identification des risques et des opportunités.
+    - Recommandations personnalisées pour optimiser votre ROI.
+    - Garantie de conformité réglementaire.
+
+**Pourquoi choisir NIN-IA ?**
+
+- **Expertise Reconnue :** Des formateurs passionnés et des experts en IA à votre service.
+- **Approche Pédagogique Innovante :** Apprentissage pratique et mises en situation réelles.
+- **Offre Complète :** Formations, modules et audits pour répondre à tous vos besoins.
+- **Accompagnement Personnalisé :** Nous sommes à vos côtés à chaque étape de votre parcours.
 """
 product_assistant = client_openai.beta.assistants.create(
     instructions=product_assistant_instruction,
@@ -171,13 +203,17 @@ product_assistant_id = product_assistant.id
 
 # Assistant 3 : Rédaction du mail
 email_assistant_instruction = """
-Vous êtes Chat IA, expert en rédaction de mails de relance et assistant de Rach de Quai Alpha.
-Vos mails commencent par "Bonjour [prénom]" et se terminent par "Cordialement Rach Startup manager et Program Manager à Quai Alpha".
-Rédigez un mail de relance percutant en tenant compte :
-    - Des informations extraites (Assistant 1)
-    - Du matching de notre offre (Assistant 2)
-    - De la qualification et des notes du lead.
-Répondez sous forme de texte structuré (salutation, introduction, corps, conclusion).
+Tu es un expert en rédaction de mails de relance et assistant d’Emeline de Nin-IA.
+Vos mails commencent toujours par "Bonjour [prénom]" et se terminent par "Cordialement Emeline Boulange, Co-dirigeante de Nin-IA.
+
+TA tâche est de rédiger un mail de relance percutant pour convertir le lead, en tenant compte :
+
+- des informations extraites (Assistant 1),
+- du matching de notre offre (Assistant 2),
+- de la qualification et des notes du lead.
+Veillez à intégrer les notes de l'utilisateur pour instaurer une relation de proximité.
+Et surtout bien mettre en place le contexte de la rencontre si cela est précisé 
+Répondez sous forme d'un texte structuré (salutation, introduction, corps, conclusion).
 """
 email_assistant = client_openai.beta.assistants.create(
     instructions=email_assistant_instruction,
