@@ -8,6 +8,23 @@ st.title("Le charte visite 🐱 - Voir les leads")
 # Connexion à la base de données
 conn = sqlite3.connect("leads.db")
 cursor = conn.cursor()
+
+# Création de la table si elle n'existe pas (pour éviter l'erreur)
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS leads (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ocr_text TEXT,
+    agent1 TEXT,
+    agent2 TEXT,
+    agent3 TEXT,
+    qualification TEXT,
+    note TEXT,
+    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+)
+""")
+conn.commit()
+
+# Exécuter la requête pour récupérer tous les leads
 cursor.execute("SELECT id, ocr_text, agent1, agent2, agent3, qualification, note, timestamp FROM leads ORDER BY timestamp DESC")
 rows = cursor.fetchall()
 
