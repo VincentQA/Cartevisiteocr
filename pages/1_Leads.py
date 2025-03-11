@@ -51,6 +51,12 @@ if st.button("Ajouter une ligne fictive"):
     conn.commit()
     st.success("Ligne fictive ajoutée.")
 
+# Bouton pour reset la base de données (supprime toutes les lignes)
+if st.button("Reset la base de données"):
+    cursor.execute("DELETE FROM leads")
+    conn.commit()
+    st.success("La base de données a été réinitialisée.")
+
 # Récupération et affichage des données
 try:
     cursor.execute("""
@@ -70,3 +76,4 @@ except Exception as e:
     st.error("Erreur lors de la récupération des leads : " + str(e))
 
 conn.close()
+
