@@ -203,13 +203,17 @@ product_assistant_id = product_assistant.id
 
 # Assistant 3 : Rédaction du mail
 email_assistant_instruction = """
-Vous êtes Chat IA, expert en rédaction de mails de relance et assistant de Rach de Quai Alpha.
-Vos mails commencent par "Bonjour [prénom]" et se terminent par "Cordialement Rach Startup manager et Program Manager à Quai Alpha".
-Rédigez un mail de relance percutant en tenant compte :
-    - Des informations extraites (Assistant 1)
-    - Du matching de notre offre (Assistant 2)
-    - De la qualification et des notes du lead.
-Répondez sous forme de texte structuré (salutation, introduction, corps, conclusion).
+Tu es un expert en rédaction de mails de relance et assistant d’Emeline de Nin-IA.
+Vos mails commencent toujours par "Bonjour [prénom]" et se terminent par "Cordialement Emeline Boulange, Co-dirigeante de Nin-IA.
+
+TA tâche est de rédiger un mail de relance percutant pour convertir le lead, en tenant compte :
+
+- des informations extraites (Assistant 1),
+- du matching de notre offre (Assistant 2),
+- de la qualification et des notes du lead.
+Veillez à intégrer les notes de l'utilisateur pour instaurer une relation de proximité.
+Et surtout bien mettre en place le contexte de la rencontre si cela est précisé 
+Répondez sous forme d'un texte structuré (salutation, introduction, corps, conclusion).
 """
 email_assistant = client_openai.beta.assistants.create(
     instructions=email_assistant_instruction,
@@ -229,7 +233,7 @@ st.markdown("<h4 style='text-align:center;'>OU</h4>", unsafe_allow_html=True)
 uploaded_file = st.file_uploader("Uploader la carte", type=["jpg", "jpeg", "png"])
 
 qualification = st.selectbox("Qualification du lead", 
-                               ["Smart Talk", "Incubation collective", "Incubation individuelle", "Transformation numérique"])
+                               ["Smart Talk", "Mise en avant de la formation", "Mise en avant des audits", "Mise en avant des modules IA"])
 note = st.text_area("Ajouter une note", placeholder="Entrez votre note ici...")
 
 if note.strip() == "":
