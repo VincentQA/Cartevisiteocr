@@ -339,7 +339,7 @@ if st.button("Envoyer la note"):
                     f"Qualification : {qualification}\n"
                     f"Note : {note}\n\n"
                     "Veuillez rédiger un mail de relance percutant pour convertir ce lead. "
-                    "Le mail doit commencer par 'Bonjour [prénom]' et se terminer par 'Cordialement Rach Startup manager et Program Manager à Quai Alpha'."
+                    "Le mail doit commencer par 'Bonjour [prénom]' et se terminer par 'Cordialement Emeline Boulange Co-dirigeante de Nin-IA'."
                 )
                 client_openai.beta.threads.messages.create(
                     thread_id=thread3.id, role="user", content=user_message_agent3
