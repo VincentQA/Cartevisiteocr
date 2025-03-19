@@ -10,6 +10,14 @@ st.title("Le charte visite 🐱 - Voir les leads")
 conn = sqlite3.connect("leads.db", check_same_thread=False)
 cursor = conn.cursor()
 
+# Création de la table 'leads' si elle n'existe pas déjà
+cursor.execute("""
+    CREATE TABLE IF NOT EXISTS leads (
+        id INTEGER PRIMARY KEY AUTOINCREMENT
+    )
+""")
+conn.commit()
+
 # Fonction pour ajouter une colonne à une table si elle n'existe pas déjà
 def add_column_if_missing(cursor, table, column, col_type):
     cursor.execute(f"PRAGMA table_info({table})")
