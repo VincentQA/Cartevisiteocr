@@ -2,14 +2,15 @@ import streamlit as st
 import sqlite3
 import pandas as pd
 
+# Configuration de la page Streamlit
 st.set_page_config(page_title="Le charte visite 🐱 - Voir les leads", layout="centered")
 st.title("Le charte visite 🐱 - Voir les leads")
 
-# Connexion à la base de données
+# Connexion à la base de données SQLite
 conn = sqlite3.connect("leads.db", check_same_thread=False)
 cursor = conn.cursor()
 
-# Fonction pour ajouter une colonne si elle n'existe pas
+# Fonction pour ajouter une colonne à une table si elle n'existe pas déjà
 def add_column_if_missing(cursor, table, column, col_type):
     cursor.execute(f"PRAGMA table_info({table})")
     columns = [row[1] for row in cursor.fetchall()]
@@ -17,7 +18,7 @@ def add_column_if_missing(cursor, table, column, col_type):
         cursor.execute(f"ALTER TABLE {table} ADD COLUMN {column} {col_type}")
         conn.commit()
 
-# Migration du schéma : on s'assure que toutes les colonnes sont présentes
+# Migration du schéma : ajout des colonnes manquantes dans la table 'leads'
 add_column_if_missing(cursor, "leads", "ocr_text", "TEXT")
 add_column_if_missing(cursor, "leads", "nom", "TEXT")
 add_column_if_missing(cursor, "leads", "prenom", "TEXT")
@@ -51,22 +52,24 @@ if st.button("Ajouter une ligne fictive"):
     conn.commit()
     st.success("Ligne fictive ajoutée.")
 
-# Bouton pour reset la base de données (supprime toutes les lignes)
+# Bouton pour réinitialiser la base de données (supprime toutes les lignes)
 if st.button("Reset la base de données"):
     cursor.execute("DELETE FROM leads")
     conn.commit()
     st.success("La base de données a été réinitialisée.")
 
-# Récupération et affichage des données
+# Récupération et affichage des données dans un DataFrame
 try:
     cursor.execute("""
         SELECT id, ocr_text, nom, prenom, telephone, mail, 
                agent1, agent2, agent3, qualification, note, timestamp 
-        FROM leads ORDER BY timestamp DESC
+        FROM leads 
+        ORDER BY timestamp DESC
     """)
     rows = cursor.fetchall()
     
     if rows:
+        # Récupération du nom des colonnes
         columns = [description[0] for description in cursor.description]
         df = pd.DataFrame(rows, columns=columns)
         st.dataframe(df)
@@ -75,5 +78,5 @@ try:
 except Exception as e:
     st.error("Erreur lors de la récupération des leads : " + str(e))
 
+# Fermeture de la connexion à la base de données
 conn.close()
-
