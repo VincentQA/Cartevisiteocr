@@ -11,6 +11,12 @@ from mistralai import Mistral
 from tavily import TavilyClient
 
 ##############################
+# Configuration de la page   #
+##############################
+st.set_page_config(page_title="Charte de visite 🐱", layout="centered")
+st.title("Charte de visite 🐱")
+
+##############################
 # Clés API & initialisation  #
 ##############################
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
@@ -222,7 +228,7 @@ email_assistant = client_openai.beta.assistants.create(
 email_assistant_id = email_assistant.id
 
 ##############################
-# Interface utilisateur
+# Interface utilisateur      #
 ##############################
 st.subheader("Capture / Upload de la carte de visite")
 
@@ -369,3 +375,4 @@ if st.button("Envoyer la note"):
                 st.success("Le lead a été envoyé automatiquement.")
         except Exception as e:
             st.error(f"Erreur lors du traitement OCR ou de l'analyse par les assistants : {e}")
+
